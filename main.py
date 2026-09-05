@@ -64,7 +64,7 @@ MOTOR_LOOP_HZ = 50
 
 # Debug windows (Frame + Mask). Purely for humans - the robot never
 # needs them. Set False when running headless / at comp; also saves CPU.
-SHOW_WINDOWS = True
+SHOW_WINDOWS = False
 # ================================================================
 
 # ----------------------------------------------------------------
