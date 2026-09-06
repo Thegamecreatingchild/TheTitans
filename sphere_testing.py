@@ -24,8 +24,8 @@ while True:
 
     hsvFrame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV) # Converts the frame from BGR to HSV color space
 
-    lower_orange = np.array([5, 95, 149]) # Lower bound for orange color in HSV
-    upper_orange = np.array([17, 255, 255]) # Upper bound for orange color in HSV
+    lower_orange = np.array([5, 120, 120]) # Lower bound for orange color in HSV
+    upper_orange = np.array([15, 255, 255]) # Upper bound for orange color in HSV
 
     mask = cv2.inRange(hsvFrame, lower_orange, upper_orange) # Creates a mask for the orange color
 
