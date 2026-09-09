@@ -14,7 +14,7 @@ from steelbar_powerful_bldc_driver import PowerfulBLDCDriver
 # ----------------------------------------------------------------
 # Config
 # ----------------------------------------------------------------
-MOTOR_ADDRESSES = [25, 28, 27, 26]  # [FL, FR, RL, RR]
+MOTOR_ADDRESSES = [25, 26, 27, 28]  # [FL, FR, RL, RR]
 
 SAVED_CAL = [
     {'elecangleoffset': 1327731200, 'sincoscentre': 1241},
@@ -23,38 +23,64 @@ SAVED_CAL = [
     {'elecangleoffset': 1150337792, 'sincoscentre': 1247},
 ]
 
-# NOTE: this is 12x the 25_000_000 used in the earlier teleop script.
-# Double-check it's not a typo before running untethered.
 SPEED = 300000000
 
+# Explicitly labeled per-motor scale, matching the WASD script.
+MOTOR_SPEED_SCALE = {
+    'FL': 1.0,
+    'FR': 0.50,
+    'RL': 0.50,
+    'RR': 0.50,
+}
+
+MOTOR_INDEX = {
+    'FL': 0,
+    'FR': 1,
+    'RL': 2,
+    'RR': 3,
+}
+
+# ---- Motor action patterns ----
+# Same patterns validated in the WASD teleop script for this chassis:
+# side-split (FL/RL vs FR/RR) drives clean forward/back translation,
+# and uniform all-motors-same-direction drives in-place rotation.
+MOTOR_ACTIONS = {
+    'forward': {'FL': -1, 'FR': 1,  'RL': -1, 'RR': 1},
+    'back':    {'FL': 1,  'FR': -1, 'RL': 1,  'RR': -1},
+    'ccw':     {'FL': -1, 'FR': -1, 'RL': -1, 'RR': -1},
+    'cw':      {'FL': 1,  'FR': 1,  'RL': 1,  'RR': 1},
+}
+
 # ---- Camera mounting compensation ----
-# Degrees ADDED to the bearing computed from the image before it is sent
-# to move().
+# Degrees ADDED to the bearing computed from the image before it is
+# used for heading control.
 #
 # With CAMERA_ROTATION_OFFSET = 0 the code assumes:
-#   ball toward the TOP of the image  -> robot drives FORWARD (0 deg)
-#   ball toward the RIGHT of the image -> robot strafes RIGHT (90 deg)
-#
-# If the camera is physically rotated 90 deg clockwise (so "image up"
-# is actually the robot's right side), set this to 90. If the robot
-# drives the wrong way, flip the sign (-90). Any angle works, so a
-# camera mounted at 45 deg just means OFFSET = 45.
+#   ball toward the TOP of the image   -> bearing 0 (robot's forward)
+#   ball toward the RIGHT of the image -> bearing 90 (robot's right)
 CAMERA_ROTATION_OFFSET = 0.0
 
 # ================================================================
 # TUNE-ME BLOCK - everything you'll adjust during testing lives here
 # ================================================================
 
-# px^2: smallest contour accepted as the ball. Raise to reject noise
-# specks, lower if the ball is being missed at long range.
-MIN_CONTOUR_AREA = 30
+# px^2: smallest contour accepted as the ball.
+MIN_CONTOUR_AREA = 6
 
 # HSV thresholds for the ball (from sphere testing).
 LOWER_ORANGE = np.array([7, 139, 141])
 UPPER_ORANGE = np.array([10, 255, 255])
 
 # px: ball within this distance of image centre -> stop (prevents jitter)
-DEAD_ZONE_RADIUS = 40
+DEAD_ZONE_RADIUS = 140
+
+# deg: how far off "straight ahead" the ball can be before we drive
+# forward without rotating first (0 = must be perfectly aligned).
+FORWARD_ALIGN_TOLERANCE = 15.0
+
+# deg: how close to directly-behind (180) the ball has to be before
+# we just reverse instead of rotating 180 to face it first.
+BACKWARD_ALIGN_TOLERANCE = 15.0
 
 # s: stop the motors if the ball hasn't been seen for this long
 BALL_LOST_TIMEOUT = 0.3
@@ -62,17 +88,12 @@ BALL_LOST_TIMEOUT = 0.3
 # motor command update rate (Hz)
 MOTOR_LOOP_HZ = 50
 
-# Debug windows (Frame + Mask). Purely for humans - the robot never
-# needs them. Set False when running headless / at comp; also saves CPU.
 SHOW_WINDOWS = False
 # ================================================================
 
-# ----------------------------------------------------------------
-# Shared state between vision (main thread) and motors (worker thread)
-# ----------------------------------------------------------------
 state_lock = threading.Lock()
-ball_offset = None   # (dx, dy) in pixels from image centre, or None
-last_seen = 0.0      # time.time() of last detection
+ball_offset = None
+last_seen = 0.0
 isRunning = True
 
 motors = []
@@ -82,7 +103,6 @@ motors = []
 # Motors
 # ----------------------------------------------------------------
 def setup_motors():
-    # General motor setup
     global motors
     i2c = busio.I2C(board.SCL, board.SDA)
 
@@ -107,24 +127,40 @@ def setup_motors():
     print("All motors ready")
 
 
-def move(degree):
-    """Translate at full SPEED toward `degree` (0 = forward, 90 = right)."""
-    angle_rad = math.radians(degree)
-
-    # Resolves the vector from camera into x and y components
-    formula_x = math.floor(math.sin(angle_rad) * SPEED)
-    formula_y = math.floor(math.cos(angle_rad) * SPEED)
-
-    # Sets the motors to spin in the correct direction at the right speed
-    motors[0].set_speed(formula_y - formula_x)
-    motors[1].set_speed(formula_y + formula_x)
-    motors[2].set_speed(-(formula_y - formula_x))
-    motors[3].set_speed(-(formula_y + formula_x))
+def apply_action(action_name):
+    """Drive the motors at full SPEED for a single named action
+    ('forward', 'back', 'ccw', 'cw'), using MOTOR_ACTIONS."""
+    pattern = MOTOR_ACTIONS[action_name]
+    for motor_name, index in MOTOR_INDEX.items():
+        speed = int(pattern[motor_name] * SPEED * MOTOR_SPEED_SCALE[motor_name])
+        motors[index].set_speed(speed)
 
 
 def stop():
     for motor in motors:
         motor.set_speed(0)
+
+
+def signed_heading_error(bearing):
+    """Convert a 0-360 bearing (0 = forward) into a signed error in
+    [-180, 180]: positive = ball is to the right, negative = left."""
+    return ((bearing + 180) % 360) - 180
+
+
+def choose_action(bearing):
+    """Decide a single motor action from the ball's bearing.
+    - Roughly ahead -> drive forward.
+    - Roughly directly behind -> just reverse (no point turning 180).
+    - Otherwise -> rotate (shortest way) to face the ball first."""
+    error = signed_heading_error(bearing)
+
+    if abs(error) <= FORWARD_ALIGN_TOLERANCE:
+        return 'forward'
+
+    if abs(abs(error) - 180) <= BACKWARD_ALIGN_TOLERANCE:
+        return 'back'
+
+    return 'cw' if error > 0 else 'ccw'
 
 
 # ----------------------------------------------------------------
@@ -142,7 +178,6 @@ def motor_loop():
         now = time.time()
 
         if offset is None or (now - seen) > BALL_LOST_TIMEOUT:
-            # Ball lost (or never seen): don't drive blind.
             if moving:
                 stop()
                 moving = False
@@ -151,17 +186,13 @@ def motor_loop():
             dist = math.hypot(dx, dy)
 
             if dist < DEAD_ZONE_RADIUS:
-                # Ball is (roughly) centred under the camera - hold position.
                 if moving:
                     stop()
                     moving = False
             else:
-                # Image coords: +x right, +y DOWN. atan2(dx, -dy) gives
-                # 0 deg when the ball is toward the top of the image and
-                # 90 deg to the right - the same convention move() uses.
                 bearing = math.degrees(math.atan2(dx, -dy))
                 bearing = (bearing + CAMERA_ROTATION_OFFSET) % 360
-                move(bearing)
+                apply_action(choose_action(bearing))
                 moving = True
 
         time.sleep(period)
@@ -181,7 +212,6 @@ def vision_loop():
 
     try:
         while isRunning:
-            # Converting colors for pi camera
             frame = picamera.capture_array()
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
@@ -191,13 +221,10 @@ def vision_loop():
             contours, _ = cv2.findContours(
                 mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
-            # Center of the frame is found as point of reference
             centre_x = frame.shape[1] // 2
             centre_y = frame.shape[0] // 2
             detected = False
 
-
-            # Finds the biggest orange blob in frame and draws a line to it
             if contours:
                 biggest_contour = max(contours, key=cv2.contourArea)
                 contour_area = cv2.contourArea(biggest_contour)
@@ -210,7 +237,7 @@ def vision_loop():
 
                         with state_lock:
                             ball_offset = (cX - centre_x, cY - centre_y)
-                            last_seen = time.time() # last moment seen is saved
+                            last_seen = time.time()
                         detected = True
 
                         if SHOW_WINDOWS:
@@ -238,7 +265,7 @@ def vision_loop():
 # Main
 # ----------------------------------------------------------------
 def main():
-    global isRunning # state of the 
+    global isRunning
 
     setup_motors()
 
@@ -257,7 +284,7 @@ def main():
     print("Following ball. Press q in the video window (or Ctrl+C) to quit.")
 
     try:
-        vision_loop()          # blocks on the main thread
+        vision_loop()
     finally:
         isRunning = False
         motor_thread.join(timeout=1.0)
