@@ -1,3 +1,4 @@
+# WASD.py this is where I control the bot manually.
 import math
 import time
 import threading
