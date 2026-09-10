@@ -65,8 +65,10 @@ MOTOR_INDEX = {
 MOTOR_ACTIONS = {
     'w': {'FL': -1, 'FR': 1,  'RL': -1, 'RR': 1},   # forward
     's': {'FL': 1,  'FR': -1, 'RL': 1,  'RR': -1},  # back
-    'a': {'FL': -1, 'FR': -1, 'RL': -1, 'RR': -1},  # rotate CCW
-    'd': {'FL': 1,  'FR': 1,  'RL': 1,  'RR': 1},   # rotate CW
+    'a': {'FL': 1, 'FR': -1,  'RL': -1, 'RR': 1},   # strafe 
+    'd': {'FL': -1,  'FR': 1, 'RL': 1,  'RR': -1},  # rotate CW
+    'e': {'FL': -1, 'FR': -1, 'RL': -1, 'RR': -1},  # rotate CCW
+    'q': {'FL': 1,  'FR': 1,  'RL': 1,  'RR': 1},   # rotate CW
 }
 
 # ================================================================
@@ -190,8 +192,6 @@ def keyboard_loop(stdscr):
                 key = chr(ch).lower()
             except ValueError:
                 continue
-            if key == 'q':
-                return
             if key in MOTOR_ACTIONS:
                 pressed_this_tick.add(key)
 

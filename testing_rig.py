@@ -136,11 +136,11 @@ detect_params = {
     'h_low': 0,
     's_low': 132,
     'v_low': 166,
-    'h_high': 10,
+    'h_high': 20,
     's_high': 255,
     'v_high': 255,
-    'min_contour_area': 30,       # px^2: smallest contour accepted as the ball
-    'centre_ignore_radius': 60,   # px: contours whose centroid is closer than
+    'min_contour_area': 2,       # px^2: smallest contour accepted as the ball
+    'dead_zone_radius': 105,   # px: contours whose centroid is closer than
                                   # this to image centre are ignored (own body,
                                   # dribbler, reflections). Must be < DEAD_ZONE_RADIUS
                                   # or the bot can never "arrive" at the ball.
@@ -272,20 +272,10 @@ def motor_loop():
         else:
             dx, dy = offset
             dist = math.hypot(dx, dy)
- 
-            if dist < DEAD_ZONE_RADIUS:
-                # Ball is effectively under the bot — hold position.
-                if moving:
-                    stop()
-                    moving = False
-            else:
-                # Pixel offset → bearing. atan2(dx, -dy) puts "up" in the
-                # image at 0°, increasing clockwise; then rotate into the
-                # robot frame with CAMERA_ROTATION_OFFSET.
-                bearing = math.degrees(math.atan2(dx, -dy))
-                bearing = (bearing + CAMERA_ROTATION_OFFSET) % 360
-                apply_action(choose_action(bearing))
-                moving = True
+            bearing = math.degrees(math.atan2(dx, -dy))
+            bearing = (bearing + CAMERA_ROTATION_OFFSET) % 360
+            apply_action(choose_action(bearing))
+            moving = True
  
         time.sleep(period)
  
@@ -328,7 +318,7 @@ const sliderDefs = [
   {key: 'v_low',  label: 'Val low',  min: 0,   max: 255, step: 1},
   {key: 'v_high', label: 'Val high', min: 0,   max: 255, step: 1},
   {key: 'min_contour_area', label: 'Min contour area', min: 0, max: 2000, step: 10},
-  {key: 'centre_ignore_radius', label: 'Centre ignore radius (px)', min: 0, max: 400, step: 5},
+  {key: 'dead_zone_radius', label: 'Dead zone radius (px)', min: 0, max: 400, step: 5},
 ];
  
 const container = document.getElementById('sliders');
@@ -504,7 +494,7 @@ def vision_loop():
  
             ball = find_ball(
                 contours, centre_x, centre_y,
-                p['min_contour_area'], p['centre_ignore_radius'],
+                p['min_contour_area'], p['dead_zone_radius'],
             )
  
             if ball is not None:
@@ -521,9 +511,9 @@ def vision_loop():
                     ball_offset = None
  
             # Always-on overlay: dead zone (black) and ignore radius (grey).
-            cv2.circle(frame, (centre_x, centre_y), DEAD_ZONE_RADIUS, (0, 0, 0), 1)
+            cv2.circle(frame, (centre_x, centre_y), int(p['dead_zone_radius']), (128, 128, 128), 1)
             cv2.circle(frame, (centre_x, centre_y),
-                       int(p['centre_ignore_radius']), (128, 128, 128), 1)
+                       int(p['dead_zone_radius']), (128, 128, 128), 1)
  
             if ENABLE_WEB_STREAM:
                 ok, encoded = cv2.imencode('.jpg', frame, encode_params)
