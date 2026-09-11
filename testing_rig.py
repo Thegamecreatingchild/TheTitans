@@ -18,6 +18,9 @@ What it does rn
    key set to the Pi, so you get the old WASD.py teleop behaviour but driven
    from the same page as the stream/sliders instead of a curses terminal.
    In AUTO mode the bot follows the ball exactly as before.
+6. NEW: pressing 'v' on the page prints the current ball vector (the offset
+   from image centre that the centre→ball debug line represents) to the
+   Pi's console. Works in either mode and doesn't affect the motors.
 
 Threads
 -------
@@ -26,9 +29,9 @@ Threads
 - motor_thread     : motor_loop()    — reads shared mode + ball/key state, commands motors
 - stream_thread    : web_stream_loop() — Flask MJPEG + slider + mode + key endpoints
 
-Shared state is protected by four locks: state_lock (ball position + mode),
+Shared state is protected by five locks: state_lock (ball position + mode),
 params_lock (detection thresholds), stream_lock (latest JPEG), keys_lock
-(manual-mode held keys).
+(manual-mode held keys), debug_lock (print-vector request flag).
 
 Hardware
 --------
@@ -56,7 +59,7 @@ from flask import Flask, Response, request, jsonify
 
 # I2C addresses of the four drive motor drivers, in the order [FL, FR, RL, RR].
 # Index into this list == index into `motors` and SAVED_CAL.
-MOTOR_ADDRESSES = [25, 28, 27, 26]
+MOTOR_ADDRESSES = [25, 28, 27, 26, 29]
 
 # Per-motor FOC calibration captured from a previous calibration run.
 # Order matches MOTOR_ADDRESSES. Re-run calibration if a motor or driver is swapped.
@@ -65,11 +68,12 @@ SAVED_CAL = [
     {'elecangleoffset': 1435147520, 'sincoscentre': 1243},  # FR
     {'elecangleoffset': 1256835584, 'sincoscentre': 1258},  # RL
     {'elecangleoffset': 1150337792, 'sincoscentre': 1247},  # RR
+    {'elecangleoffset': 1437511680, 'sincoscentre': 1245},  # dribbler
 ]
 
 # Base speed command sent to the drivers (raw driver units, not RPM).
 # Actual per-motor command = pattern_sign * SPEED * MOTOR_SPEED_SCALE[motor].
-SPEED = 300000000
+SPEED = 120_000_000
 
 # Per-motor multiplier applied to SPEED. Use this to trim motors that spin
 # faster/slower than the others so the bot tracks straight. This is a
@@ -79,6 +83,7 @@ MOTOR_SPEED_SCALE = {
     'FR': 0.50,
     'RL': 0.50,
     'RR': 0.50,
+    'dribbler': 1.0,
 }
 
 # Motor name → index into `motors` / MOTOR_ADDRESSES.
@@ -87,6 +92,7 @@ MOTOR_INDEX = {
     'FR': 1,
     'RL': 2,
     'RR': 3,
+    'dribbler': 4
 }
 
 # Direction sign for each motor per AUTO action. Signs encode both the
@@ -98,6 +104,8 @@ MOTOR_ACTIONS = {
     'back':    {'FL': 1,  'FR': -1, 'RL': 1,  'RR': -1},
     'cw':      {'FL': -1, 'FR': -1, 'RL': -1, 'RR': -1},
     'ccw':     {'FL': 1,  'FR': 1,  'RL': 1,  'RR': 1},
+    'dribble': {'dribbler': -1},
+    'shoot': {'dribbler': 1}
 }
 
 # Key -> per-motor multiplier for MANUAL mode, taken from WASD.py. Contributions
@@ -112,10 +120,12 @@ MOTOR_ACTIONS = {
 KEY_ACTIONS = {
     'w': {'FL': -1, 'FR': 1,  'RL': -1, 'RR': 1},   # forward
     's': {'FL': 1,  'FR': -1, 'RL': 1,  'RR': -1},  # back
-    'a': {'FL': 1,  'FR': -1, 'RL': -1, 'RR': 1},   # strafe
-    'd': {'FL': -1, 'FR': 1,  'RL': 1,  'RR': -1},  # rotate CW
+    'a': {'FL': 1,  'FR': 1,  'RL': -1, 'RR': -1},  # strafe
+    'd': {'FL': -1, 'FR': -1, 'RL': 1,  'RR': 1},   # rotate CW
     'e': {'FL': -1, 'FR': -1, 'RL': -1, 'RR': -1},  # rotate CCW
     'q': {'FL': 1,  'FR': 1,  'RL': 1,  'RR': 1},   # rotate CW
+    'k': {'dribbler': -1},   # dribbler forward
+    'l': {'dribbler': 1},  # dribbler back
 }
 
 # Degrees added to the image-derived bearing so that 0° == robot forward.
@@ -125,10 +135,6 @@ CAMERA_ROTATION_OFFSET = -90.0
 # ================================================================
 # TUNE-ME BLOCK - everything you'll adjust during testing lives here
 # ================================================================
-
-# Pixel radius around image centre inside which the ball is considered
-# "reached" — motors stop so the bot doesn't hunt/oscillate on top of the ball.
-DEAD_ZONE_RADIUS = 100
 
 # Bearing error (degrees) within which the bot drives forward instead of
 # rotating. Larger = drives sooner but tracks less precisely.
@@ -152,6 +158,10 @@ SHOW_WINDOWS = False
 ENABLE_WEB_STREAM = True
 STREAM_PORT = 5000
 STREAM_JPEG_QUALITY = 80
+
+def pixel_dist_to_cm(pixel_distance):
+    return 260 - (2400/pixel_distance+11)
+
 # ================================================================
 
 # ----------------------------------------------------------------
@@ -170,10 +180,11 @@ ball_detect_params = {
     's_high': 255,
     'v_high': 255,
     'min_contour_area': 2,       # px^2: smallest contour accepted as the ball
-    'dead_zone_radius': 105,   # px: contours whose centroid is closer than
+    'dead_zone_radius': 135,   # px: contours whose centroid is closer than
                                   # this to image centre are ignored (own body,
                                   # dribbler, reflections). Must be < DEAD_ZONE_RADIUS
                                   # or the bot can never "arrive" at the ball.
+    'ball_dribble_radius': 145
 }
 
 cyan_goal_detect_params = {
@@ -210,7 +221,7 @@ is_scoring_to_cyan_goal : bool = False
 
 # --- Mode switch: 'auto' (ball tracking) or 'manual' (browser WASD) ---
 mode_lock = threading.Lock()
-control_mode = 'auto'
+control_mode = 'manual'
 
 # --- Manual-mode held-key state, posted by the browser (see /keys route) ---
 keys_lock = threading.Lock()
@@ -222,6 +233,13 @@ motors = []          # list[PowerfulBLDCDriver], populated by setup_motors()
 # --- Latest encoded frame for the MJPEG stream ---
 stream_lock = threading.Lock()
 latest_jpeg = None
+
+# --- Debug: "print the current ball vector" request flag. Set by the 'v'
+# key on the web page (via /debug/print_vector), consumed and cleared by
+# vision_loop() on the next frame it processes. This is deliberately kept
+# separate from KEY_ACTIONS/active_keys so it never affects motor commands.
+debug_lock = threading.Lock()
+print_vector_requested = False
 
 
 # ----------------------------------------------------------------
@@ -239,7 +257,7 @@ def setup_motors():
     for index, address in enumerate(MOTOR_ADDRESSES):
         motor = PowerfulBLDCDriver(i2c, address)
 
-        motor.set_current_limit_foc(65536)
+        motor.set_current_limit_foc(65536 * 2)
         motor.set_id_pid_constants(1500, 200)
         motor.set_iq_pid_constants(1500, 200)
         motor.set_speed_pid_constants(4e-2, 4e-4, 3e-2)
@@ -259,14 +277,11 @@ def setup_motors():
 
 
 def apply_action(action_name):
-    """Command all four motors according to a MOTOR_ACTIONS pattern (AUTO mode).
-
-    Args:
-        action_name: key into MOTOR_ACTIONS ('forward', 'cw', 'ccw', ...).
-    """
+    """Commands all motors to do a specific action"""
     pattern = MOTOR_ACTIONS[action_name]
-    for motor_name, index in MOTOR_INDEX.items():
-        speed = int(pattern[motor_name] * SPEED * MOTOR_SPEED_SCALE[motor_name])
+    for motor_name, value in pattern.items():
+        index = MOTOR_INDEX[motor_name]
+        speed = int(value * SPEED * MOTOR_SPEED_SCALE[motor_name])
         motors[index].set_speed(speed)
 
 
@@ -382,15 +397,22 @@ def motor_loop():
                 seen = last_seen
 
             if offset is None or (now - seen) > BALL_LOST_TIMEOUT:
-                # Ball lost — stop and wait for it to reappear.
                 if moving:
                     stop()
                     moving = False
             else:
                 dx, dy = offset
+                distance = math.hypot(dx, dy)
+                
                 bearing = math.degrees(math.atan2(dx, -dy))
                 bearing = (bearing + CAMERA_ROTATION_OFFSET) % 360
                 apply_action(choose_action(bearing))
+
+                if distance <= ball_detect_params["ball_dribble_radius"]:
+                    apply_action('dribble')
+                else:
+                    motors[MOTOR_INDEX['dribbler']].set_speed(0)
+
                 moving = True
 
         time.sleep(period)
@@ -406,7 +428,9 @@ flask_app = Flask(__name__)
 # Single-page UI: MJPEG video on the left, mode switch + one slider per
 # ball_detect_params key on the right. Sliders POST changes to /params as the
 # user drags them. The AUTO/MANUAL switch POSTs to /mode. In MANUAL mode,
-# WASD(+QE) keydown/keyup events are captured and POSTed to /keys.
+# WASD(+QE) keydown/keyup events are captured and POSTed to /keys. Pressing
+# 'v' (either mode) POSTs to /debug/print_vector, which asks the Pi console
+# to print the current ball vector on the next processed frame.
 PAGE_HTML = """
 <html>
 <head>
@@ -449,7 +473,14 @@ PAGE_HTML = """
     <div></div><div class="keycap" data-key="w">W</div><div></div>
     <div class="keycap" data-key="a">A</div><div class="keycap" data-key="s">S</div><div class="keycap" data-key="d">D</div>
     <div class="keycap" data-key="q">Q</div><div></div><div class="keycap" data-key="e">E</div>
+    <div class="keycap" data-key="k">K</div><div></div><div class="keycap" data-key="l">L</div>
   </div>
+</div>
+
+<h3>Debug</h3>
+<div style="font-size:13px; opacity:0.8;">
+  Press <b>V</b> (anywhere, either mode) to print the current ball vector
+  (centre→ball offset in px) to the Pi's console.
 </div>
 
 <h3>Detection tuning</h3>
@@ -539,7 +570,7 @@ async function loadInitialMode() {
 loadInitialMode();
 
 // ---- Manual WASD key capture ----
-const VALID_KEYS = ['w', 'a', 's', 'd', 'q', 'e'];
+const VALID_KEYS = ['w', 'a', 's', 'd', 'q', 'e', 'k', 'l'];
 const pressedKeys = new Set();
 let sendTimer = null;
 
@@ -562,8 +593,17 @@ function clearKeys() {
 }
 
 window.addEventListener('keydown', (e) => {
-  if (currentMode !== 'manual') return;
   const key = e.key.toLowerCase();
+
+  // 'v' is a standalone debug request, valid in either mode, and does not
+  // go through the held-keys/motor pipeline at all.
+  if (key === 'v') {
+    e.preventDefault();
+    fetch('/debug/print_vector', { method: 'POST' });
+    return;
+  }
+
+  if (currentMode !== 'manual') return;
   if (!VALID_KEYS.includes(key)) return;
   e.preventDefault();
   if (!pressedKeys.has(key)) {
@@ -696,6 +736,22 @@ def keys_route():
     return jsonify({'ok': True, 'keys': sorted(valid)})
 
 
+@flask_app.route('/debug/print_vector', methods=['POST'])
+def debug_print_vector_route():
+    """POST → ask vision_loop() to print the current ball vector once.
+
+    Just flips a flag; vision_loop() does the actual printing (and clears
+    the flag) the next time it processes a frame, so the printed value is
+    always the freshest one available and this stays a no-op on the motors.
+    """
+    global print_vector_requested
+
+    with debug_lock:
+        print_vector_requested = True
+
+    return jsonify({'ok': True})
+
+
 def web_stream_loop():
     """Run the Flask server (blocking; call from a daemon thread)."""
     flask_app.run(host='0.0.0.0', port=STREAM_PORT, threaded=True, use_reloader=False)
@@ -788,6 +844,9 @@ def vision_loop():
       5. Draw debug overlay (centroid, centre→ball line, dead-zone circle,
          ignore circle), encode to JPEG for the stream, optionally show
          cv2 windows.
+      6. If the 'v' key was pressed on the web page since the last frame,
+         print the centre→ball vector (the same one drawn as the debug
+         line) to the console and clear the request.
 
     This runs regardless of control_mode — the stream and detection stay
     live in MANUAL mode too, so you can still see the ball while driving
@@ -796,7 +855,7 @@ def vision_loop():
     If no acceptable contour is found, ball_offset is set to None immediately;
     motor_loop() additionally applies BALL_LOST_TIMEOUT on last_seen.
     """
-    global ball_offset, last_seen, latest_jpeg
+    global ball_offset, last_seen, latest_jpeg, print_vector_requested
 
     picamera = Picamera2()
     picamera.configure(picamera.create_preview_configuration())
@@ -861,9 +920,29 @@ def vision_loop():
                     ball_offset = None
 
             # Always-on overlay: dead zone (black) and ignore radius (grey).
-            cv2.circle(frame, (centre_x, centre_y), int(p['dead_zone_radius']), (128, 128, 128), 1)
-            cv2.circle(frame, (centre_x, centre_y),
-                       int(p['dead_zone_radius']), (128, 128, 128), 1)
+            cv2.circle(frame, (centre_x, centre_y), int(p['dead_zone_radius']), (128, 128, 128), 10)            
+            
+            # Debug: print the current centre→ball vector if 'v' was pressed
+            # on the web page since the last frame. Check-and-clear under
+            # debug_lock so a request arriving mid-print isn't dropped.
+            with debug_lock:
+                should_print = print_vector_requested
+                print_vector_requested = False
+
+            if should_print:
+                with state_lock:
+                    current_offset = ball_offset
+                if current_offset is None:
+                    print("[v] No ball currently detected — no vector to print.")
+                else:
+                    dx, dy = current_offset
+                    distance = math.hypot(dx, dy)
+                    bearing = math.degrees(math.atan2(dx, -dy))
+                    bearing = (bearing + CAMERA_ROTATION_OFFSET) % 360
+                    print(
+                        f"[v] Ball vector: dx={dx}px, dy={dy}px, "
+                        f"distance={distance:.1f}px, bearing={bearing:.1f}deg"
+                    )
 
             if ENABLE_WEB_STREAM:
                 ok, encoded = cv2.imencode('.jpg', frame, encode_params)

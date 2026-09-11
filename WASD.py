@@ -22,7 +22,7 @@ SAVED_CAL = [
     {'elecangleoffset': 1150337792, 'sincoscentre': 1247},
 ]
 
-SPEED = 300000000
+SPEED = 100_000_000
 
 # Per-motor speed scale factors, explicitly labeled to match
 # MOTOR_ADDRESSES / physical wheel position.

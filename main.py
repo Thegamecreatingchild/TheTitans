@@ -119,6 +119,7 @@ def setup_motors():
 
         motor.configure_operating_mode_and_sensor(3, 1)
         motor.configure_command_mode(12)
+        motor.set_speed_limit(200_000_000)
         motor.set_speed(0)
 
         motors.append(motor)
