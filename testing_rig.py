@@ -212,7 +212,7 @@ state_lock = threading.Lock()
 ball_offset = None   # (dx, dy) pixels from image centre, or None if not seen
 last_seen = 0.0      # time.time() of the last successful detection
 is_running : bool = True     # global run flag; set False to stop all loops
-last_known_position : tuple = None
+last_known_position : tuple = (None, None)
 
 # -- Goal scoring stuff (possesion state, dribbler position offset)
 has_posession : bool = False  # True if the ball is within DEAD_ZONE_RADIUS of centre
