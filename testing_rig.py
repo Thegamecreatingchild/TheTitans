@@ -59,7 +59,7 @@ from flask import Flask, Response, request, jsonify
 
 # I2C addresses of the four drive motor drivers, in the order [FL, FR, RL, RR].
 # Index into this list == index into `motors` and SAVED_CAL.
-MOTOR_ADDRESSES = [25, 28, 27, 26, 29]
+MOTOR_ADDRESSES = [25, 28, 27, 26] #, 29]
 
 # Per-motor FOC calibration captured from a previous calibration run.
 # Order matches MOTOR_ADDRESSES. Re-run calibration if a motor or driver is swapped.
@@ -73,7 +73,7 @@ SAVED_CAL = [
 
 # Base speed command sent to the drivers (raw driver units, not RPM).
 # Actual per-motor command = pattern_sign * SPEED * MOTOR_SPEED_SCALE[motor].
-SPEED = 120_000_000
+SPEED = 100_000_000
 
 # Per-motor multiplier applied to SPEED. Use this to trim motors that spin
 # faster/slower than the others so the bot tracks straight. This is a
