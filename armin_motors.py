@@ -1,4 +1,8 @@
-"""Motor setup and movement decisions for Hari's chassis."""
+"""Motor setup and movement decisions for Hari's chassis.
+
+This module is the only place that knows the BLDC driver API and Hari's
+four-wheel equations. Higher-level code asks it to move, spin, or stop.
+"""
 
 import math
 import time
@@ -7,16 +11,19 @@ from typing import Iterable, Set
 import board
 import busio
 
-from hari_config import MotorConfig, VisionConfig
-from hari_state import ControlState
+from armin_config import MotorConfig, VisionConfig
+from armin_state import ControlState
 from steelbar_powerful_bldc_driver import PowerfulBLDCDriver
 
+# Translation keys use the same bearing convention as the camera: 0 is ahead.
 KEY_DEGREES = {'w': 0, 'd': 90, 's': 180, 'a': 270}
 ROTATE_KEYS = {'q': -1, 'e': 1}
 DRIBBLE_KEY = 'k'
 
 
 class MotorController:
+    """Own initialized drive motors and translate decisions into wheel speeds."""
+
     def __init__(self, config: MotorConfig, vision_config: VisionConfig,
                  control_state: ControlState, debug_hz: int = 5) -> None:
         self.config = config
@@ -28,6 +35,7 @@ class MotorController:
         self.debug_hz = debug_hz
 
     def setup(self) -> None:
+        """Create and configure the four drive drivers and optional dribbler."""
         i2c = busio.I2C(board.SCL, board.SDA)
         for index, address in enumerate(self.config.addresses):
             motor = self._create_motor(i2c, address, self.config.calibrations[index])
@@ -66,6 +74,7 @@ class MotorController:
         )
 
     def move(self, degree: float, speed: int = None) -> None:
+        """Drive in a compass direction using the fixed Hari wheel geometry."""
         speed = self.config.max_speed if speed is None else speed
         angle_rad = math.radians(degree + 45)
         x = math.floor(math.cos(angle_rad) * speed)
@@ -76,15 +85,18 @@ class MotorController:
         self.motors[3].set_speed(-(y - x))
 
     def spin(self, speed: int) -> None:
+        """Turn in place by commanding every drive wheel equally."""
         for motor in self.motors:
             motor.set_speed(speed)
 
     def stop(self) -> None:
+        """Stop every motor and release the dribbler."""
         for motor in self.motors:
             motor.set_speed(0)
         self.set_dribbler(False)
 
     def apply_manual_keys(self, keys: Iterable[str]) -> None:
+        """Apply the first matching rotation or translation key from the set."""
         keys = set(keys)
         for key, sign in ROTATE_KEYS.items():
             if key in keys:
@@ -113,6 +125,7 @@ class MotorController:
         self.stop()
 
     def apply_auto(self, ball_visible: bool, ball_angle: float, distance: float) -> None:
+        """Search when the ball is absent; otherwise drive toward its bearing."""
         if not ball_visible:
             speed = int(self.config.max_speed * 0.3)
             self._debug(f"[auto] ball not visible (or stale) -> spin(speed={speed}) to search")

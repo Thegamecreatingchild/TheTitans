@@ -1,4 +1,8 @@
-"""Configuration objects for Hari's robot controller."""
+"""Typed configuration for hardware, vision, networking, and control timing.
+
+Only live tuning values in :class:`VisionConfig` are changed at runtime; the
+other configuration objects describe the robot's fixed wiring and startup.
+"""
 
 from dataclasses import dataclass, field
 from typing import Tuple
@@ -6,12 +10,20 @@ from typing import Tuple
 
 @dataclass(frozen=True)
 class MotorCalibration:
+    """FOC calibration values belonging to one motor driver."""
+
     elecangleoffset: int
     sincoscentre: int
 
 
 @dataclass(frozen=True)
 class MotorConfig:
+    """Motor addresses, calibration, speed limits, and dribbler settings.
+
+    The four drive motors are ordered ``FR, BR, BL, FL`` to match Hari's
+    wiring and the index assumptions in ``MotorController.move``.
+    """
+
     addresses: Tuple[int, ...] = (26, 28, 27, 25)
     calibrations: Tuple[MotorCalibration, ...] = (
         MotorCalibration(1327731200, 1241),
@@ -28,10 +40,12 @@ class MotorConfig:
 
 @dataclass
 class VisionConfig:
+    """HSV, geometry, camera-angle, timeout, and CLAHE tuning values."""
+
     h_low: int = 0
     s_low: int = 200
     v_low: int = 77
-    h_high: int = 22
+    h_high: int = 19
     s_high: int = 255
     v_high: int = 255
     min_contour_area: int = 1
@@ -45,6 +59,8 @@ class VisionConfig:
 
 @dataclass(frozen=True)
 class CameraConfig:
+    """Capture format requested from Picamera2."""
+
     size: Tuple[int, int] = (640, 480)
     fps: int = 120
 
@@ -55,11 +71,15 @@ class CameraConfig:
 
 @dataclass(frozen=True)
 class NetworkConfig:
+    """Network endpoint used by the browser control page."""
+
     websocket_port: int = 8765
 
 
 @dataclass(frozen=True)
 class ControlConfig:
+    """Timing and physical control-input settings."""
+
     key_lost_timeout: float = 0.3
     motor_loop_delay: float = 0.02
     camera_loop_delay: float = 0.03
@@ -70,6 +90,8 @@ class ControlConfig:
 
 @dataclass(frozen=True)
 class RobotConfig:
+    """Complete startup configuration passed into ``HariApplication``."""
+
     motors: MotorConfig = field(default_factory=MotorConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)

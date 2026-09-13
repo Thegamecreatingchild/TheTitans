@@ -1,4 +1,8 @@
-"""Camera setup and ball detection for Hari's robot."""
+"""Camera setup and ball detection for Hari's robot.
+
+Frames are rotated counter-clockwise before detection because of the camera's
+physical mounting. The returned offset is ``(dx, dy)`` from image centre.
+"""
 
 import json
 import math
@@ -8,16 +12,19 @@ import cv2
 import numpy as np
 from picamera2 import Picamera2
 
-from hari_config import CameraConfig, VisionConfig
+from armin_config import CameraConfig, VisionConfig
 
 
 class VisionService:
+    """Configure Picamera2 and turn frames into annotated images plus ball offsets."""
+
     def __init__(self, camera_config: CameraConfig, config: VisionConfig) -> None:
         self.camera_config = camera_config
         self.config = config
         self._clahe = self._create_clahe()
 
     def setup_camera(self) -> Picamera2:
+        """Start the camera and apply saved exposure/white-balance settings."""
         picam = Picamera2()
         config = picam.create_video_configuration(
             main={'size': self.camera_config.size},
@@ -56,6 +63,7 @@ class VisionService:
 
     def update_clahe(self, clip_limit: float = None,
                      tile_grid: Tuple[int, int] = None) -> None:
+        """Apply live low-light tuning and rebuild the OpenCV CLAHE filter."""
         if clip_limit is not None:
             self.config.clahe_clip_limit = clip_limit
         if tile_grid is not None:
@@ -69,6 +77,7 @@ class VisionService:
         )
 
     def process_frame(self, picam) -> Tuple[np.ndarray, Optional[Tuple[int, int]]]:
+        """Capture, threshold, select, and annotate one frame."""
         frame = picam.capture_array()
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
@@ -114,6 +123,7 @@ class VisionService:
     @staticmethod
     def find_ball(contours, centre_x: int, centre_y: int,
                   min_area: int, ignore_radius: int):
+        """Return the largest qualifying contour centroid, if one exists."""
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
             if cv2.contourArea(contour) <= min_area:
                 break

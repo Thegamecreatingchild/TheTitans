@@ -1,16 +1,22 @@
-"""WebSocket control and video broadcasting."""
+"""WebSocket control and video broadcasting.
+
+Text frames are JSON commands from the browser; binary frames are JPEG video
+sent back to every connected client.
+"""
 
 import asyncio
 import json
 import time
 
-from hari_config import VisionConfig
-from hari_motors import DRIBBLE_KEY, KEY_DEGREES, ROTATE_KEYS, MotorController
-from hari_state import RobotState
-from hari_vision import VisionService
+from armin_config import VisionConfig
+from armin_motors import DRIBBLE_KEY, KEY_DEGREES, ROTATE_KEYS, MotorController
+from armin_state import RobotState
+from armin_vision import VisionService
 
 
 class WebSocketController:
+    """Translate browser messages into state/config updates and broadcast JPEGs."""
+
     def __init__(self, state: RobotState, vision_config: VisionConfig,
                  vision: VisionService, motors: MotorController) -> None:
         self.state = state
@@ -19,6 +25,7 @@ class WebSocketController:
         self.motors = motors
 
     async def handle(self, websocket) -> None:
+        """Serve one browser connection until it disconnects."""
         self.state.clients.add(websocket)
         print('Browser connected')
         try:
@@ -35,6 +42,7 @@ class WebSocketController:
             print('Browser disconnected')
 
     def _handle_message(self, data: dict) -> None:
+        """Dispatch one decoded JSON command to its focused update method."""
         message_type = data.get('type')
         if message_type == 'params':
             self._update_vision_params(data)

@@ -1,4 +1,8 @@
-"""Entry point for Hari's modular ball-pivot controller."""
+"""Entry point and task coordinator for Hari's modular ball-pivot controller.
+
+``HariApplication`` owns the services and connects their async loops; it does
+not contain the motor equations, image processing, or message parsing.
+"""
 
 import asyncio
 import math
@@ -10,14 +14,16 @@ import cv2
 import websockets
 from gpiozero import Button
 
-from hari_config import RobotConfig
-from hari_motors import MotorController
-from hari_state import RobotState
-from hari_vision import VisionService
-from hari_websocket import WebSocketController
+from armin_config import RobotConfig
+from armin_motors import MotorController
+from armin_state import RobotState
+from armin_vision import VisionService
+from armin_websocket import WebSocketController
 
 
 class HariApplication:
+    """Compose robot services and coordinate camera, motor, and WebSocket work."""
+
     def __init__(self, config: RobotConfig = None) -> None:
         self.config = config or RobotConfig()
         self.state = RobotState()
@@ -45,6 +51,7 @@ class HariApplication:
         print(f'[switch] mode set to {mode}')
 
     async def run(self) -> None:
+        """Initialize hardware, serve the browser, and run until shutdown."""
         self.motors.setup()
         picam = self.vision.setup_camera()
         self.set_mode('auto' if self.movement_switch.is_pressed else 'manual')
@@ -69,6 +76,7 @@ class HariApplication:
             self.motors.stop()
 
     async def stream_camera(self, picam) -> None:
+        """Publish the latest camera observation and JPEG to connected clients."""
         while self.state.is_running:
             frame, offset = self.vision.process_frame(picam)
             if offset is not None:
@@ -100,6 +108,7 @@ class HariApplication:
         )
 
     async def motor_loop(self) -> None:
+        """Apply manual commands or ball-following decisions at a fixed interval."""
         while self.state.is_running:
             now = time.time()
             control = self.state.control
@@ -118,6 +127,7 @@ class HariApplication:
             await asyncio.sleep(self.config.control.motor_loop_delay)
 
     def _apply_auto(self, now: float) -> None:
+        """Reject stale observations before handing a valid bearing to the motors."""
         ball = self.state.ball
         timeout = self.config.vision.ball_lost_timeout
         # BallState owns observations; the timeout is configuration, not an observation.
@@ -139,6 +149,7 @@ class HariApplication:
             self.motors.apply_auto(False, 0.0, 0.0)
 
     def shutdown(self) -> None:
+        """Stop future loops and remove motor output immediately."""
         self.state.is_running = False
         self.motors.stop()
 
