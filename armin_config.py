@@ -31,11 +31,11 @@ class MotorConfig:
         MotorCalibration(1256835584, 1258),
         MotorCalibration(1150337792, 1247),
     )
-    max_speed: int = 80_000_000
+    max_speed: int = 40_000_000
     enable_dribbler: bool = False
     dribbler_address: int = 29
     dribbler_calibration: MotorCalibration = MotorCalibration(1437511680, 1245)
-    dribbler_speed: int = 80_000_000
+    dribbler_speed: int = 40_000_000
 
 
 @dataclass

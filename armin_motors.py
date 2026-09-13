@@ -76,7 +76,7 @@ class MotorController:
     def move(self, degree: float, speed: int = None) -> None:
         """Drive in a compass direction using the fixed Hari wheel geometry."""
         speed = self.config.max_speed if speed is None else speed
-        angle_rad = math.radians(degree + 45)
+        angle_rad = math.radians(degree + 90)
         x = math.floor(math.cos(angle_rad) * speed)
         y = math.floor(math.sin(angle_rad) * speed)
         self.motors[0].set_speed(y + x)

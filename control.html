@@ -1,0 +1,360 @@
+<!--
+control.html — control page for hari_movement.py
+
+Same layout/features as testing_rig.py's Flask page (video, AUTO/MANUAL
+switch, WASD grid, HSV/detection sliders, 'v' debug key) but everything
+that was an HTTP fetch()/POST there is a JSON message over the single
+WebSocket connection here, since hari_movement.py's transport is
+websockets rather than Flask.
+
+Also renders a live debug readout (ball vector/distance/bearing, pivot
+state, active keys, etc) from the server's periodic 'debug_state' text
+messages — see broadcast_debug_state() in hari_movement.py.
+
+Edit PI_HOST below to your Pi's IP/hostname before use.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Robot control</title>
+<style>
+  body { margin:0; background:#111; color:#eee; font-family:sans-serif; display:flex; }
+  #video { flex:1; position:relative; display:flex; align-items:center; justify-content:center; background:#000; }
+  #video img { max-width:100%; max-height:100vh; width:auto; height:auto; object-fit:contain; }
+  #controls { width:320px; padding:16px; box-sizing:border-box; overflow-y:auto; }
+  #controls label { display:block; margin-top:12px; font-size:13px; }
+  #controls input[type=range] { width:100%; }
+  .val { float:right; opacity:0.7; }
+  #status { font-size:12px; opacity:0.7; margin-bottom:8px; }
+
+  #modeSwitch { display:flex; border:1px solid #444; border-radius:6px; overflow:hidden; margin-bottom:8px; }
+  #modeSwitch button { flex:1; padding:10px; border:none; background:#222; color:#eee; font-size:14px; cursor:pointer; }
+  #modeSwitch button.active { background:#3a7; color:#111; font-weight:bold; }
+
+  #manualPanel { display:none; margin-top:12px; padding:12px; border:1px solid #444; border-radius:6px; }
+  #manualPanel.visible { display:block; }
+  #keyGrid { display:grid; grid-template-columns:repeat(3, 40px); gap:6px; justify-content:center; margin-top:8px; }
+  .keycap { width:40px; height:40px; display:flex; align-items:center; justify-content:center;
+            border:1px solid #555; border-radius:4px; background:#222; font-size:13px; }
+  .keycap.held { background:#3a7; color:#111; border-color:#3a7; }
+
+  /* Debug readout is now an overlay pinned to the top-left of the video
+     feed, rather than living in the side panel — bold white text with a
+     text-shadow so it stays legible over any camera frame. */
+  #debugPanel {
+    position:absolute;
+    top:12px;
+    left:12px;
+    z-index:10;
+    font-family:monospace;
+    font-size:13px;
+    font-weight:bold;
+    color:#fff;
+    text-shadow: 0 0 3px #000, 0 0 6px #000, 1px 1px 2px #000;
+    background:rgba(0,0,0,0.35);
+    padding:10px 12px;
+    border-radius:6px;
+    line-height:1.7;
+    pointer-events:none;
+    max-width:280px;
+  }
+  #debugPanel .row { display:flex; justify-content:space-between; gap:12px; }
+  #debugPanel .lbl { opacity:0.85; font-weight:normal; }
+  #debugPanel .yes { color:#5f5; font-weight:bold; }
+  #debugPanel .no  { color:#f66; font-weight:bold; }
+  #debugLog {
+    margin:12px 0 0;
+    max-height:220px;
+    overflow-y:auto;
+    white-space:pre-wrap;
+    overflow-wrap:anywhere;
+    font:12px/1.45 monospace;
+    color:#bfc7c9;
+    background:#080808;
+    border:1px solid #333;
+    border-radius:4px;
+    padding:8px;
+  }
+</style>
+</head>
+<body>
+<div id="video">
+  <img id="frame">
+  <div id="debugPanel">waiting for data...</div>
+</div>
+<div id="controls">
+
+<div id="status">connecting...</div>
+
+<h3>Control mode</h3>
+<div id="modeSwitch">
+  <button id="btnAuto">AUTO (ball)</button>
+  <button id="btnManual">MANUAL (WASD)</button>
+</div>
+
+<div id="manualPanel">
+  Click the video area first so your keystrokes are captured, then hold
+  W/A/S/D to translate and Q/E to rotate. K engages the dribbler if it's
+  enabled on the robot. Releasing all keys stops the bot. Keys stop being
+  sent if this tab loses focus.
+  <div id="keyGrid">
+    <div></div><div class="keycap" data-key="w">W</div><div></div>
+    <div class="keycap" data-key="a">A</div><div class="keycap" data-key="s">S</div><div class="keycap" data-key="d">D</div>
+    <div class="keycap" data-key="q">Q</div><div></div><div class="keycap" data-key="e">E</div>
+    <div></div><div class="keycap" data-key="k">K</div><div></div>
+  </div>
+</div>
+
+<h3>Debug</h3>
+<div style="font-size:13px; opacity:0.8;">
+  Press <b>V</b> (anywhere, either mode) to print the current ball vector
+  (centre&rarr;ball offset in px) to the Pi's console. Press <b>M</b> to
+  toggle motor debug logging on the Pi. The live readout is now shown
+  overlaid on the video feed (top-left) instead of down here.
+</div>
+<pre id="debugLog" aria-label="Robot debug log">waiting for console output...</pre>
+<button id="btnDebugMotor" style="width:100%; margin-top:8px; padding:8px; border:1px solid #444; border-radius:6px; background:#222; color:#eee; cursor:pointer;">
+  Motor debug logging: <span id="debugMotorState">on</span> (or press M)
+</button>
+
+<h3>Detection tuning</h3>
+<div id="sliders"></div>
+</div>
+
+<script>
+// ---- Edit this to your Pi's address ----
+const PI_HOST = "192.168.1.56";
+const WS_URL = `ws://${PI_HOST}:8765`;
+
+let ws;
+let wsReady = false;
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+  ws.binaryType = "blob";
+  const status = document.getElementById('status');
+
+  ws.addEventListener('open', () => {
+    wsReady = true;
+    status.textContent = "connected";
+  });
+
+  ws.addEventListener('close', () => {
+    wsReady = false;
+    status.textContent = "disconnected — retrying...";
+    setTimeout(connect, 1000);
+  });
+
+  ws.addEventListener('error', () => ws.close());
+
+  // The server sends two kinds of messages down this one connection:
+  //  - binary: a JPEG video frame -> draw it
+    //  - text: JSON control/debug messages -> 'debug_state' and 'debug_log'
+    //    messages, rendered in the overlay and console panel.
+  ws.addEventListener('message', (event) => {
+    if (event.data instanceof Blob) {
+      const url = URL.createObjectURL(event.data);
+      const img = document.getElementById('frame');
+      const prev = img.src;
+      img.src = url;
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+    } else {
+      let data;
+      try { data = JSON.parse(event.data); } catch { return; }
+      if (data.type === 'debug_state') renderDebugState(data);
+      if (data.type === 'debug_log') appendDebugLog(data.message);
+    }
+  });
+}
+connect();
+
+function send(obj) {
+  if (wsReady) ws.send(JSON.stringify(obj));
+}
+
+// ---- Live debug readout ----
+function fmt(n, digits = 1) {
+  return (n === null || n === undefined) ? '—' : Number(n).toFixed(digits);
+}
+
+function boolSpan(b) {
+  return `<span class="${b ? 'yes' : 'no'}">${b}</span>`;
+}
+
+function renderDebugState(d) {
+  document.getElementById('debugPanel').innerHTML = `
+    <div class="row"><span class="lbl">mode</span><b>${d.mode}</b></div>
+    <div class="row"><span class="lbl">clients</span>${d.clients_connected}</div>
+    <div class="row"><span class="lbl">ball visible</span>${boolSpan(d.ball_visible)}</div>
+    <div class="row"><span class="lbl">offset (dx, dy)</span>${fmt(d.ball_dx, 0)}, ${fmt(d.ball_dy, 0)} px</div>
+    <div class="row"><span class="lbl">distance</span>${fmt(d.ball_distance)} px</div>
+    <div class="row"><span class="lbl">bearing</span>${fmt(d.ball_bearing_deg)}&deg;</div>
+    <div class="row"><span class="lbl">pivoting</span>${boolSpan(d.is_pivoting)}</div>
+    <div class="row"><span class="lbl">pivot offset</span>${fmt(d.pivot_offset_deg)}&deg;</div>
+    <div class="row"><span class="lbl">pivot distance</span>${fmt(d.pivot_distance, 0)} px</div>
+    <div class="row"><span class="lbl">dribble radius</span>${fmt(d.ball_dribble_radius, 0)} px</div>
+    <div class="row"><span class="lbl">active keys</span>${(d.active_keys && d.active_keys.length) ? d.active_keys.join(', ') : '—'}</div>
+    <div class="row"><span class="lbl">motor debug</span>${boolSpan(d.debug_motor)}</div>
+  `;
+}
+
+function appendDebugLog(message) {
+  const log = document.getElementById('debugLog');
+  if (log.textContent === 'waiting for console output...') log.textContent = '';
+  log.textContent += `${message}\n`;
+  const lines = log.textContent.split('\n');
+  if (lines.length > 201) log.textContent = lines.slice(-201).join('\n');
+  log.scrollTop = log.scrollHeight;
+}
+
+// ---- Detection sliders (mirrors testing_rig's ball_detect_params) ----
+const sliderDefs = [
+  {key: 'h_low',  label: 'Hue low',  min: 0,   max: 179, step: 1, def: 0},
+  {key: 'h_high', label: 'Hue high', min: 0,   max: 179, step: 1, def: 20},
+  {key: 's_low',  label: 'Sat low',  min: 0,   max: 255, step: 1, def: 86},
+  {key: 's_high', label: 'Sat high', min: 0,   max: 255, step: 1, def: 255},
+  {key: 'v_low',  label: 'Val low',  min: 0,   max: 255, step: 1, def: 166},
+  {key: 'v_high', label: 'Val high', min: 0,   max: 255, step: 1, def: 255},
+  {key: 'min_contour_area', label: 'Min contour area', min: 0, max: 2000, step: 10, def: 2},
+  {key: 'dead_zone_radius', label: 'Dead zone radius (px)', min: 0, max: 400, step: 5, def: 135},
+  {key: 'ball_dribble_radius', label: 'Dribble-engage radius (px)', min: 0, max: 400, step: 5, def: 145},
+];
+
+const container = document.getElementById('sliders');
+sliderDefs.forEach(def => {
+  const wrap = document.createElement('label');
+  wrap.innerHTML = `${def.label} <span class="val" id="val-${def.key}">${def.def}</span>`;
+
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = def.min;
+  input.max = def.max;
+  input.step = def.step;
+  input.value = def.def;
+
+  input.addEventListener('input', () => {
+    document.getElementById(`val-${def.key}`).textContent = input.value;
+    send({type: 'params', [def.key]: Number(input.value)});
+  });
+
+  wrap.appendChild(document.createElement('br'));
+  wrap.appendChild(input);
+  container.appendChild(wrap);
+});
+
+// ---- Mode switch ----
+const btnAuto = document.getElementById('btnAuto');
+const btnManual = document.getElementById('btnManual');
+const manualPanel = document.getElementById('manualPanel');
+let currentMode = 'manual'; // matches the server's default control_mode
+
+function renderMode() {
+  btnAuto.classList.toggle('active', currentMode === 'auto');
+  btnManual.classList.toggle('active', currentMode === 'manual');
+  manualPanel.classList.toggle('visible', currentMode === 'manual');
+  if (currentMode !== 'manual') clearKeys();
+}
+
+function setMode(mode) {
+  currentMode = mode;
+  renderMode();
+  send({type: 'mode', mode});
+}
+
+btnAuto.addEventListener('click', () => setMode('auto'));
+btnManual.addEventListener('click', () => setMode('manual'));
+renderMode();
+
+// ---- Motor debug logging toggle ----
+// Local state only tracks what THIS tab last requested — the server is the
+// source of truth (default DEBUG_MOTOR = False at startup, see
+// hari_movement.py — 'debug_motor' in the live readout above is the
+// authoritative value), so this button's label may be out of sync if
+// another tab toggled it, or briefly before the first debug_state arrives.
+let debugMotorEnabled = true;
+const btnDebugMotor = document.getElementById('btnDebugMotor');
+const debugMotorState = document.getElementById('debugMotorState');
+
+function toggleDebugMotor() {
+  debugMotorEnabled = !debugMotorEnabled;
+  debugMotorState.textContent = debugMotorEnabled ? 'on' : 'off';
+  send({type: 'debug_motor', enabled: debugMotorEnabled});
+}
+
+btnDebugMotor.addEventListener('click', toggleDebugMotor);
+
+// ---- Manual WASD(+QE) + dribbler key capture ----
+const VALID_KEYS = ['w', 'a', 's', 'd', 'q', 'e', 'k'];
+const pressedKeys = new Set();
+
+function keycapFor(key) {
+  return document.querySelector(`.keycap[data-key="${key}"]`);
+}
+
+function sendKeys() {
+  send({type: 'keys', keys: Array.from(pressedKeys)});
+}
+
+function clearKeys() {
+  pressedKeys.forEach(k => { const cap = keycapFor(k); if (cap) cap.classList.remove('held'); });
+  pressedKeys.clear();
+  sendKeys();
+}
+
+window.addEventListener('keydown', (e) => {
+  const key = e.key.toLowerCase();
+
+  if (e.ctrlKey && key === 'c') {
+    e.preventDefault();
+    send({type: 'shutdown'});
+    document.getElementById('status').textContent = 'shutdown sent — stopping robot...';
+    return;
+  }
+
+  if (key === 'v') {
+    e.preventDefault();
+    send({type: 'debug_vector'});
+    return;
+  }
+
+  if (key === 'm') {
+    e.preventDefault();
+    toggleDebugMotor();
+    return;
+  }
+
+  if (currentMode !== 'manual') return;
+  if (!VALID_KEYS.includes(key)) return;
+  e.preventDefault();
+  if (!pressedKeys.has(key)) {
+    pressedKeys.add(key);
+    const cap = keycapFor(key);
+    if (cap) cap.classList.add('held');
+    sendKeys();
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (currentMode !== 'manual') return;
+  const key = e.key.toLowerCase();
+  if (!VALID_KEYS.includes(key)) return;
+  e.preventDefault();
+  if (pressedKeys.has(key)) {
+    pressedKeys.delete(key);
+    const cap = keycapFor(key);
+    if (cap) cap.classList.remove('held');
+    sendKeys();
+  }
+});
+
+window.addEventListener('blur', clearKeys);
+document.addEventListener('visibilitychange', () => { if (document.hidden) clearKeys(); });
+
+// Heartbeat, same purpose as testing_rig's: re-send held keys periodically
+// so the server-side KEY_LOST_TIMEOUT doesn't trip on a dropped message.
+setInterval(() => {
+  if (currentMode === 'manual' && pressedKeys.size > 0) sendKeys();
+}, 100);
+</script>
+</body>
+</html>

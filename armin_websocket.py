@@ -5,6 +5,7 @@ sent back to every connected client.
 """
 
 import asyncio
+from collections import deque
 import json
 import time
 
@@ -23,10 +24,33 @@ class WebSocketController:
         self.vision_config = vision_config
         self.vision = vision
         self.motors = motors
+        self.log_history = deque(maxlen=200)
+        self._loop = None
+
+    def set_loop(self, loop) -> None:
+        """Set the event loop used to publish logs from any callback thread."""
+        self._loop = loop
+
+    def record_log(self, message: str) -> None:
+        """Keep a console line and publish it to connected browsers."""
+        if not message:
+            return
+        self.log_history.append(message)
+        if self._loop is not None:
+            try:
+                self._loop.call_soon_threadsafe(self._schedule_log_broadcast, message)
+            except RuntimeError:
+                # The application may be shutting down while a callback prints.
+                pass
+
+    def _schedule_log_broadcast(self, message: str) -> None:
+        asyncio.create_task(self.broadcast_log(message))
 
     async def handle(self, websocket) -> None:
         """Serve one browser connection until it disconnects."""
         self.state.clients.add(websocket)
+        for message in self.log_history:
+            await websocket.send(json.dumps({'type': 'debug_log', 'message': message}))
         print('Browser connected')
         try:
             async for message in websocket:
@@ -98,6 +122,15 @@ class WebSocketController:
 
     async def broadcast(self, payload: bytes) -> None:
         if self.state.clients:
+            await asyncio.gather(
+                *[client.send(payload) for client in self.state.clients],
+                return_exceptions=True,
+            )
+
+    async def broadcast_log(self, message: str) -> None:
+        """Send one captured console line to every connected browser."""
+        if self.state.clients:
+            payload = json.dumps({'type': 'debug_log', 'message': message})
             await asyncio.gather(
                 *[client.send(payload) for client in self.state.clients],
                 return_exceptions=True,

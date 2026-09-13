@@ -21,6 +21,27 @@ from armin_vision import VisionService
 from armin_websocket import WebSocketController
 
 
+class ConsoleLogTee:
+    """Preserve console output while forwarding complete lines to the UI."""
+
+    def __init__(self, console, on_line) -> None:
+        self.console = console
+        self.on_line = on_line
+        self.pending = ''
+
+    def write(self, text: str) -> int:
+        self.console.write(text)
+        self.pending += text
+        while '\n' in self.pending:
+            line, self.pending = self.pending.split('\n', 1)
+            if line:
+                self.on_line(line)
+        return len(text)
+
+    def flush(self) -> None:
+        self.console.flush()
+
+
 class HariApplication:
     """Compose robot services and coordinate camera, motor, and WebSocket work."""
 
@@ -40,6 +61,8 @@ class HariApplication:
             self.vision,
             self.motors,
         )
+        self.original_stdout = sys.stdout
+        sys.stdout = ConsoleLogTee(sys.stdout, self.websocket.record_log)
         self.movement_switch = Button(self.config.control.movement_switch_gpio)
         self.movement_switch.when_pressed = lambda: self.set_mode('auto')
         self.movement_switch.when_released = lambda: self.set_mode('manual')
@@ -52,6 +75,7 @@ class HariApplication:
 
     async def run(self) -> None:
         """Initialize hardware, serve the browser, and run until shutdown."""
+        self.websocket.set_loop(asyncio.get_running_loop())
         self.motors.setup()
         picam = self.vision.setup_camera()
         self.set_mode('auto' if self.movement_switch.is_pressed else 'manual')
@@ -74,6 +98,7 @@ class HariApplication:
             server.close()
             await server.wait_closed()
             self.motors.stop()
+            sys.stdout = self.original_stdout
 
     async def stream_camera(self, picam) -> None:
         """Publish the latest camera observation and JPEG to connected clients."""
