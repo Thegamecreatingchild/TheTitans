@@ -36,8 +36,11 @@ class VisionService:
             },
         )
         picam.configure(config)
+        debug_config = picam.create_still_configuration()
+        width, height = debug_config["main"]["size"]
+        print(width, height)
+        
         picam.start()
-
         try:
             with open('calibration.json') as file:
                 calibration = json.load(file)
