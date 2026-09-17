@@ -1,6 +1,6 @@
-"""Entry point and task coordinator for Hari's modular ball-pivot controller.
+"""Entry point and task coordinator for Armin's modular ball-pivot controller.
 
-``HariApplication`` owns the services and connects their async loops; it does
+``ArminApplication`` owns the services and connects their async loops; it does
 not contain the motor equations, image processing, or message parsing.
 """
 
@@ -42,7 +42,7 @@ class ConsoleLogTee:
         self.console.flush()
 
 
-class HariApplication:
+class ArminApplication:
     """Compose robot services and coordinate camera, motor, and WebSocket work."""
 
     def __init__(self, config: RobotConfig = None) -> None:
@@ -53,6 +53,7 @@ class HariApplication:
             self.config.motors,
             self.config.vision,
             self.state.control,
+            self.state,
             self.config.control.debug_print_hz,
         )
         self.websocket = WebSocketController(
@@ -62,7 +63,7 @@ class HariApplication:
             self.motors,
         )
         self.original_stdout = sys.stdout
-        sys.stdout = ConsoleLogTee(sys.stdout, self.websocket.record_log)
+        sys.stdout = ConsoleLogTee(sys.stdout, self.websocket.record_log) # records smth for websockets
         self.movement_switch = Button(self.config.control.movement_switch_gpio)
         self.movement_switch.when_pressed = lambda: self.set_mode('auto')
         self.movement_switch.when_released = lambda: self.set_mode('manual')
@@ -162,6 +163,11 @@ class HariApplication:
             distance = math.hypot(dx, dy)
             bearing = math.degrees(math.atan2(dx, -dy)) % 360
             bearing = (bearing + self.config.vision.camera_rotation_offset) % 360
+            
+            if distance <= self.config.vision.ball_dribble_radius and distance > self.config.vision.dead_zone_radius:
+                self.state.has_possession = True
+            else:
+                self.state.has_possession = False
             self.motors.apply_auto(True, bearing, distance)
         else:
             if ball.offset is None:
@@ -180,7 +186,7 @@ class HariApplication:
 
 
 def main() -> None:
-    application = HariApplication()
+    application = ArminApplication()
 
     def shutdown_handler(_signal, _frame):
         print('\nShutting down...')

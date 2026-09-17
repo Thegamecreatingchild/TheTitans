@@ -35,3 +35,4 @@ class RobotState:
     control: ControlState = field(default_factory=ControlState)
     clients: Set[object] = field(default_factory=set)
     is_running: bool = True
+    has_possession : bool = False

@@ -31,11 +31,11 @@ class MotorConfig:
         MotorCalibration(1256835584, 1258),
         MotorCalibration(1150337792, 1247),
     )
-    max_speed: int = 40_000_000
+    max_speed: int = 100_000_000
     enable_dribbler: bool = False
     dribbler_address: int = 29
     dribbler_calibration: MotorCalibration = MotorCalibration(1437511680, 1245)
-    dribbler_speed: int = 40_000_000
+    dribbler_speed: int = 100_000_000
 
 
 @dataclass
@@ -50,7 +50,7 @@ class VisionConfig:
     v_high: int = 255
     min_contour_area: int = 1
     dead_zone_radius: int = 132
-    ball_dribble_radius: int = 145
+    ball_dribble_radius: int = 170
     camera_rotation_offset: float = 0.0
     ball_lost_timeout: float = 0.3
     clahe_clip_limit: float = 2.5

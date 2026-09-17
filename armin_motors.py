@@ -17,18 +17,19 @@ from steelbar_powerful_bldc_driver import PowerfulBLDCDriver
 
 # Translation keys use the same bearing convention as the camera: 0 is ahead.
 KEY_DEGREES = {'w': 0, 'd': 90, 's': 180, 'a': 270}
-ROTATE_KEYS = {'q': -1, 'e': 1}
+# Rotate keys use the same convention as the camera: 1 is clockwise, -1 is counterclockwise.
+ROTATE_KEYS = {'q': 1, 'e': -1}
 DRIBBLE_KEY = 'k'
 
 
 class MotorController:
     """Own initialized drive motors and translate decisions into wheel speeds."""
 
-    def __init__(self, config: MotorConfig, vision_config: VisionConfig,
-                 control_state: ControlState, debug_hz: int = 5) -> None:
+    def __init__(self, config, vision_config, control_state, robot_state, debug_hz=5):
         self.config = config
         self.vision_config = vision_config
         self.control_state = control_state
+        self.robot_state = robot_state
         self.motors = []
         self.dribbler_motor = None
         self._debug_last_print = 0.0
@@ -74,7 +75,7 @@ class MotorController:
         )
 
     def move(self, degree: float, speed: int = None) -> None:
-        """Drive in a compass direction using the fixed Hari wheel geometry."""
+        """Drive in a compass direction using Hari's math."""
         speed = self.config.max_speed if speed is None else speed
         angle_rad = math.radians(degree + 90)
         x = math.floor(math.cos(angle_rad) * speed)
@@ -126,6 +127,11 @@ class MotorController:
 
     def apply_auto(self, ball_visible: bool, ball_angle: float, distance: float) -> None:
         """Search when the ball is absent; otherwise drive toward its bearing."""
+        if self.robot_state.has_possession and ball_visible:
+            self._debug(f"[auto] has possession and ball visible -> stop()")
+            self.spin(self.config.max_speed // 2)
+            return
+        
         if not ball_visible:
             speed = int(self.config.max_speed * 0.3)
             self._debug(f"[auto] ball not visible (or stale) -> spin(speed={speed}) to search")
