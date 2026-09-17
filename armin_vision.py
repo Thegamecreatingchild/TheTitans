@@ -22,6 +22,7 @@ class VisionService:
         self.camera_config = camera_config
         self.config = config
         self._clahe = self._create_clahe()
+        self.debug_mask = True  # set to False to disable mask overlay in debug frames
 
     def setup_camera(self) -> Picamera2:
         """Start the camera and apply saved exposure/white-balance settings."""
@@ -88,9 +89,10 @@ class VisionService:
         height, width = frame.shape[:2]
         centre_x, centre_y = width // 2, height // 2
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        h, s, value = cv2.split(hsv)
-        value = self._clahe.apply(value)
-        hsv = cv2.merge([h, s, value])
+        h, s, v = cv2.split(hsv)
+        sat_gain = 1.8
+        s = np.clip(s * sat_gain, 0, 255).astype(np.uint8)
+        hsv = cv2.merge([h, s, v])
 
         lower = np.array([self.config.h_low, self.config.s_low, self.config.v_low])
         upper = np.array([self.config.h_high, self.config.s_high, self.config.v_high])
@@ -121,6 +123,10 @@ class VisionService:
             offset = (ball_x - centre_x, ball_y - centre_y)
             cv2.circle(frame, (ball_x, ball_y), 5, (0, 0, 255), -1)
             cv2.line(frame, (centre_x, centre_y), ball, (255, 0, 0), 2)
+        
+        if self.debug_mask:
+            return cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR), offset
+        
         return frame, offset
 
     @staticmethod
