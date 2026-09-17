@@ -49,7 +49,7 @@ class VisionConfig:
     s_high: int = 255
     v_high: int = 255
     min_contour_area: int = 1
-    dead_zone_radius: int = 132
+    dead_zone_radius: int = 129
     ball_dribble_radius: int = 145
     camera_rotation_offset: float = 0.0
     ball_lost_timeout: float = 0.3
