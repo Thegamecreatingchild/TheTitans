@@ -55,27 +55,28 @@ class MotorController:
 
     @staticmethod
     def _create_motor(i2c, address, calibration):
+        """Create and configure a single motor driver."""
         motor = PowerfulBLDCDriver(i2c, address)
-        motor.set_current_limit_foc(65536 * 2)
-        motor.set_id_pid_constants(1500, 200)
-        motor.set_iq_pid_constants(1500, 200)
-        motor.set_speed_pid_constants(4e-2, 4e-4, 3e-2)
-        motor.set_ELECANGLEOFFSET(calibration.elecangleoffset)
-        motor.set_SINCOSCENTRE(calibration.sincoscentre)
-        motor.configure_operating_mode_and_sensor(3, 1)
-        motor.configure_command_mode(12)
+        motor.set_current_limit_foc(65536 * 2) # Set the current limit for the motor
+        motor.set_id_pid_constants(1500, 200) # Set the PID constants for current control
+        motor.set_speed_pid_constants(4e-2, 4e-4, 3e-2) # Set the PID constants for speed control
+        motor.set_ELECANGLEOFFSET(calibration.elecangleoffset) # Set the ELECANGLEOFFSET register to the calibration value
+        motor.set_SINCOSCENTRE(calibration.sincoscentre) # Set the SINCOSCENTRE register to the calibration value
+        motor.configure_operating_mode_and_sensor(3, 1) # Set to position control mode
+        motor.configure_command_mode(12) # Set to speed control mode
         motor.set_speed(0)
         return motor
 
-    def set_dribbler(self, engaged: bool) -> None:
+    def spin_dribbler(self, engaged: bool) -> None:
+        """Turn the dribbler on, if it exists"""
         if not self.config.enable_dribbler or self.dribbler_motor is None:
             return
         self.dribbler_motor.set_speed(
-            -self.config.dribbler_speed if engaged else 0
+            self.config.dribbler_speed if engaged else 0
         )
 
     def move(self, degree: float, speed: int = None) -> None:
-        """Drive in a compass direction using Hari's math."""
+        """Move the bot in a direction, commanding each wheel using math. Check the OneNote to see it."""
         speed = self.config.max_speed if speed is None else speed
         angle_rad = math.radians(degree + 90)
         x = math.floor(math.cos(angle_rad) * speed)
@@ -86,15 +87,15 @@ class MotorController:
         self.motors[3].set_speed(-(y - x))
 
     def spin(self, speed: int) -> None:
-        """Turn in place by commanding every drive wheel equally."""
+        """Self Explanatory. If you needed to hover over this you really are a dumbass."""
         for motor in self.motors:
             motor.set_speed(speed)
 
     def stop(self) -> None:
-        """Stop every motor and release the dribbler."""
+        """Stop every motor including dribbler."""
         for motor in self.motors:
             motor.set_speed(0)
-        self.set_dribbler(False)
+        self.spin_dribbler(False)
 
     def apply_manual_keys(self, keys: Iterable[str]) -> None:
         """Apply the first matching rotation or translation key from the set."""
@@ -108,7 +109,7 @@ class MotorController:
                     f"({'CW' if sign > 0 else 'CCW'})"
                 )
                 self.spin(speed)
-                self.set_dribbler(self.config.enable_dribbler and DRIBBLE_KEY in keys)
+                self.spin_dribbler(self.config.enable_dribbler and DRIBBLE_KEY in keys)
                 return
 
         for key, degree in KEY_DEGREES.items():
@@ -119,7 +120,7 @@ class MotorController:
                     f"matched first -> move(degree={degree}, speed={speed})"
                 )
                 self.move(degree, speed)
-                self.set_dribbler(self.config.enable_dribbler and DRIBBLE_KEY in keys)
+                self.spin_dribbler(self.config.enable_dribbler and DRIBBLE_KEY in keys)
                 return
 
         self._debug(f"[manual] held={sorted(keys)} -> no recognised key held -> stop()")
@@ -129,31 +130,32 @@ class MotorController:
         """Search when the ball is absent; otherwise drive toward its bearing."""
         if self.robot_state.has_possession and ball_visible:
             self._debug(f"[auto] has possession and ball visible -> stop()")
-            self.spin(self.config.max_speed // 2)
+            self.spin(self.config.max_speed // 2) # Temp code for debugging.
             return
         
         if not ball_visible:
-            speed = int(self.config.max_speed * 0.3)
             self._debug(f"[auto] ball not visible (or stale) -> spin(speed={speed}) to search")
-            self.spin(speed)
-            self.set_dribbler(False)
+            self.stop()
+            self.spin_dribbler(False)
             return
 
-        speed = int(self.config.max_speed * 0.7)
+        speed = int(self.config.max_speed)
         self._debug(
             f"[auto] ball at angle={ball_angle:.1f}deg, distance={distance:.1f}px "
             f"-> move(degree={ball_angle:.1f}, speed={speed})"
         )
         self.move(ball_angle, speed)
+        
+        # Dribbler handling
         if distance <= self.vision_config.ball_dribble_radius:
             self._debug(
                 f"[auto] distance {distance:.1f}px <= dribble radius "
                 f"{self.vision_config.ball_dribble_radius}px -> dribbler ENGAGE"
                 f"{'' if self.config.enable_dribbler else ' (skipped, enable_dribbler=False)'}"
             )
-            self.set_dribbler(True)
+            self.spin_dribbler(True)
         else:
-            self.set_dribbler(False)
+            self.spin_dribbler(False)
 
     def debug(self, message: str) -> None:
         self._debug(message)

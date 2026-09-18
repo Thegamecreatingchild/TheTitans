@@ -1,7 +1,14 @@
-"""Typed configuration for hardware, vision, networking, and control timing.
+"""
+Author: Aditya Gantimahapatruni
+Date created: 18/9/2026
 
-Only live tuning values in :class:`VisionConfig` are changed at runtime; the
-other configuration objects describe the robot's fixed wiring and startup.
+File purpose: TLDR - A Settings Menu
+
+Description:
+This file contains many data classes that store variables used througout this project.
+This is a centralized place to have these variables to make it easier to change them in the future.
+The variables are grouped into different classes based on their purpose.
+
 """
 
 from dataclasses import dataclass, field

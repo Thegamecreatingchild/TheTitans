@@ -1,7 +1,13 @@
-"""Entry point and task coordinator for Armin's modular ball-pivot controller.
+"""
+Author: Aditya Gantimahapatruni
+Date created: 18/9/2026
 
-``ArminApplication`` owns the services and connects their async loops; it does
-not contain the motor equations, image processing, or message parsing.
+File purpose: TLDR - The file where all other modules are connected to each other.
+
+Description:
+This file is the main entry point for the robot application. 
+It initializes the robot's configuration, state, vision, motors, and WebSocket controller.
+It also sets up a console log tee to forward console output to the WebSocket clients.
 """
 
 import asyncio
@@ -28,8 +34,9 @@ class ConsoleLogTee:
         self.console = console
         self.on_line = on_line
         self.pending = ''
-
+    
     def write(self, text: str) -> int:
+        """Every printed statement is sent to the console and also forwarded to the WebSocket clients."""
         self.console.write(text)
         self.pending += text
         while '\n' in self.pending:
@@ -46,48 +53,48 @@ class ArminApplication:
     """Compose robot services and coordinate camera, motor, and WebSocket work."""
 
     def __init__(self, config: RobotConfig = None) -> None:
-        self.config = config or RobotConfig()
-        self.state = RobotState()
-        self.vision = VisionService(self.config.camera, self.config.vision)
-        self.motors = MotorController(
-            self.config.motors,
-            self.config.vision,
-            self.state.control,
-            self.state,
-            self.config.control.debug_print_hz,
+        self.robot_config = config or RobotConfig()
+        self.robot_state = RobotState()
+        self.robot_vision = VisionService(self.robot_config.camera, self.robot_config.vision)
+        self.robot_motors = MotorController(
+            self.robot_config.motors,
+            self.robot_config.vision,
+            self.robot_state.control,
+            self.robot_state,
+            self.robot_config.control.debug_print_hz,
         )
-        self.websocket = WebSocketController(
-            self.state,
-            self.config.vision,
-            self.vision,
-            self.motors,
+        self.robot_websocket = WebSocketController(
+            self.robot_state,
+            self.robot_config.vision,
+            self.robot_vision,
+            self.robot_motors,
         )
         self.original_stdout = sys.stdout
-        sys.stdout = ConsoleLogTee(sys.stdout, self.websocket.record_log) # records smth for websockets
-        self.movement_switch = Button(self.config.control.movement_switch_gpio)
+        sys.stdout = ConsoleLogTee(sys.stdout, self.robot_websocket.record_log) # records smth for websockets
+        self.movement_switch = Button(self.robot_config.control.movement_switch_gpio)
         self.movement_switch.when_pressed = lambda: self.set_mode('auto')
         self.movement_switch.when_released = lambda: self.set_mode('manual')
 
     def set_mode(self, mode: str) -> None:
-        self.state.control.mode = mode
+        self.robot_state.control.mode = mode
         if mode != 'manual':
-            self.state.control.active_keys.clear()
+            self.robot_state.control.active_keys.clear()
         print(f'[switch] mode set to {mode}')
 
     async def run(self) -> None:
         """Initialize hardware, serve the browser, and run until shutdown."""
-        self.websocket.set_loop(asyncio.get_running_loop())
-        self.motors.setup()
-        picam = self.vision.setup_camera()
+        self.robot_websocket.set_loop(asyncio.get_running_loop())
+        self.robot_motors.setup()
+        picam = self.robot_vision.setup_camera()
         self.set_mode('auto' if self.movement_switch.is_pressed else 'manual')
         server = await websockets.serve(
-            self.websocket.handle,
+            self.robot_websocket.handle,
             '0.0.0.0',
-            self.config.network.websocket_port,
+            self.robot_config.network.websocket_port,
         )
         print(
             'WebSocket control + video on port '
-            f"{self.config.network.websocket_port} — open control.html to drive."
+            f"{self.robot_config.network.websocket_port} — open control.html to drive."
         )
         print('Ctrl+C to stop.')
         try:
@@ -98,30 +105,30 @@ class ArminApplication:
         finally:
             server.close()
             await server.wait_closed()
-            self.motors.stop()
+            self.robot_motors.stop()
             sys.stdout = self.original_stdout
 
     async def stream_camera(self, picam) -> None:
         """Publish the latest camera observation and JPEG to connected clients."""
-        while self.state.is_running:
-            frame, offset = self.vision.process_frame(picam)
-            if offset is not None:
-                self.state.ball.offset = offset
-                self.state.ball.last_seen = time.time()
+        while self.robot_state.is_running:
+            frame, offset = self.robot_vision.process_frame(picam)
+            if offset is not None: # If it can see the ball
+                self.robot_state.ball.offset = offset
+                self.robot_state.ball.last_seen = time.time()
             else:
-                self.state.ball.offset = None
+                self.robot_state.ball.offset = None
 
             self._print_requested_vector()
             success, encoded = cv2.imencode('.jpg', frame)
             if success:
-                await self.websocket.broadcast(encoded.tobytes())
-            await asyncio.sleep(self.config.control.camera_loop_delay)
-
+                await self.robot_websocket.broadcast(encoded.tobytes())
+            await asyncio.sleep(self.robot_config.control.camera_loop_delay)
+    
     def _print_requested_vector(self) -> None:
-        if not self.state.control.print_vector_requested:
+        if not self.robot_state.control.print_vector_requested:
             return
-        self.state.control.print_vector_requested = False
-        offset = self.state.ball.offset
+        self.robot_state.control.print_vector_requested = False
+        offset = self.robot_state.ball.offset
         if offset is None:
             print('[v] No ball currently detected — no vector to print.')
             return
@@ -135,54 +142,56 @@ class ArminApplication:
 
     async def motor_loop(self) -> None:
         """Apply manual commands or ball-following decisions at a fixed interval."""
-        while self.state.is_running:
+        while self.robot_state.is_running:
             now = time.time()
-            control = self.state.control
+            control = self.robot_state.control
             if control.mode == 'manual':
                 stale = (
                     not control.active_keys
-                    or now - control.keys_last_seen > self.config.control.key_lost_timeout
+                    or now - control.keys_last_seen > self.robot_config.control.key_lost_timeout
                 )
                 if stale:
-                    self.motors.debug('[manual] no keys held or stale -> stop()')
-                    self.motors.stop()
+                    self.robot_motors.debug('[manual] no keys held or stale -> stop()')
+                    self.robot_motors.stop()
                 else:
-                    self.motors.apply_manual_keys(control.active_keys)
+                    self.robot_motors.apply_manual_keys(control.active_keys)
             else:
                 self._apply_auto(now)
-            await asyncio.sleep(self.config.control.motor_loop_delay)
+            await asyncio.sleep(self.robot_config.control.motor_loop_delay)
 
     def _apply_auto(self, now: float) -> None:
         """Reject stale observations before handing a valid bearing to the motors."""
-        ball = self.state.ball
-        timeout = self.config.vision.ball_lost_timeout
+        ball = self.robot_state.ball
+        timeout = self.robot_config.vision.ball_lost_timeout
         # BallState owns observations; the timeout is configuration, not an observation.
+        # stale if last ball detect call is too old
         stale = ball.offset is None or now - ball.last_seen > timeout
         if not stale:
             dx, dy = ball.offset
             distance = math.hypot(dx, dy)
             bearing = math.degrees(math.atan2(dx, -dy)) % 360
-            bearing = (bearing + self.config.vision.camera_rotation_offset) % 360
+            bearing = (bearing + self.robot_config.vision.camera_rotation_offset) % 360 # Update for camera offset
             
-            if distance <= self.config.vision.ball_dribble_radius and distance > self.config.vision.dead_zone_radius:
-                self.state.has_possession = True
+            # Possession check - if the ball is outside deadzone and inside dribble radius.
+            if distance <= self.robot_config.vision.ball_dribble_radius and distance > self.robot_config.vision.dead_zone_radius:
+                self.robot_state.has_possession = True
             else:
-                self.state.has_possession = False
-            self.motors.apply_auto(True, bearing, distance)
+                self.robot_state.has_possession = False
+            self.robot_motors.apply_auto(True, bearing, distance)
         else:
             if ball.offset is None:
-                self.motors.debug('[auto] no ball detected this frame')
+                self.robot_motors.debug('[auto] no ball detected this frame')
             else:
-                self.motors.debug(
+                self.robot_motors.debug(
                     f'[auto] last detection {now - ball.last_seen:.2f}s ago '
                     f'> BALL_LOST_TIMEOUT ({timeout}s) -> treated as not visible'
                 )
-            self.motors.apply_auto(False, 0.0, 0.0)
+            self.robot_motors.apply_auto(False, 0.0, 0.0)
 
     def shutdown(self) -> None:
         """Stop future loops and remove motor output immediately."""
-        self.state.is_running = False
-        self.motors.stop()
+        self.robot_state.is_running = False
+        self.robot_motors.stop()
 
 
 def main() -> None:
