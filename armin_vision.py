@@ -1,10 +1,15 @@
-"""Camera setup and ball detection for Hari's robot.
+"""
+Author: Aditya Gantimahapatruni
+Date created: 18/9/2026
 
-Frames are rotated counter-clockwise before detection because of the camera's
-physical mounting. The returned offset is ``(dx, dy)`` from image centre.
+File purpose: TLDR - A Camera Handler
+
+Description:
+This file contains a class that handles most vision logic, including boosting saturation of orange pixels,
+finding a ball, and returning its position to allow other modules to operate with new info.
+
 """
 
-import json
 import math
 from typing import Optional, Tuple
 
@@ -22,10 +27,9 @@ class VisionService:
         self.camera_config = camera_config
         self.config = config
         self._clahe = self._create_clahe()
-        self.debug_mask = True  # set to False to disable mask overlay in debug frames
 
     def setup_camera(self) -> Picamera2:
-        """Start the camera and apply saved exposure/white-balance settings."""
+        """Start the camera and apply configured exposure/white-balance settings."""
         picam = Picamera2()
         config = picam.create_video_configuration(
             main={'size': self.camera_config.size},
@@ -37,32 +41,23 @@ class VisionService:
             },
         )
         picam.configure(config)
-        debug_config = picam.create_still_configuration()
-        width, height = debug_config["main"]["size"]
-        print(width, height)
+        # debug_config = picam.create_still_configuration()
+        # width, height = debug_config["main"]["size"]
+        # print(width, height)
         
         picam.start()
-        try:
-            with open('calibration.json') as file:
-                calibration = json.load(file)
-            picam.set_controls({
-                'AeEnable': False,
-                'AwbEnable': False,
-                'ExposureTime': calibration['exposure_time'],
-                'AnalogueGain': calibration['analogue_gain'],
-                'ColourGains': tuple(calibration['colour_gains']),
-            })
-            print(
-                f"Loaded calibration.json. Capturing at "
-                f"{self.camera_config.size[0]}x{self.camera_config.size[1]} "
-                f"@ target {self.camera_config.fps}fps."
-            )
-        except FileNotFoundError:
-            print(
-                f"No calibration.json found. Capturing at "
-                f"{self.camera_config.size[0]}x{self.camera_config.size[1]} "
-                f"@ target {self.camera_config.fps}fps."
-            )
+        # Setting the camera's fps to be higher by reducing the exposure time and various others.
+        picam.set_controls({
+            'AeEnable': False,
+            'AwbEnable': False,
+            'ExposureTime': self.camera_config.exposure_time,
+            'AnalogueGain': self.camera_config.analogue_gain,
+            'ColourGains': self.camera_config.colour_gains,
+        })
+        print(
+            f"Capturing at {self.camera_config.size[0]}x{self.camera_config.size[1]} "
+            f"@ target {self.camera_config.fps}fps."
+        )
         return picam
 
     def update_clahe(self, clip_limit: float = None,
@@ -124,7 +119,7 @@ class VisionService:
             cv2.circle(frame, (ball_x, ball_y), 5, (0, 0, 255), -1)
             cv2.line(frame, (centre_x, centre_y), ball, (255, 0, 0), 2)
         
-        if self.debug_mask:
+        if self.config.debug_mask:
             return cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR), offset
         
         return frame, offset

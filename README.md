@@ -8,7 +8,7 @@ place to put robot behaviour.
 
 ## Run
 
-Run from this folder so the local driver and `calibration.json` can be found:
+Run from this folder so the local driver can be found:
 
 ```bash
 python Armin_main.py
@@ -26,7 +26,7 @@ motors to zero. Hardware imports require the Raspberry Pi environment; use
 - `Armin_state.py`: mutable observations and commands shared by async tasks.
 - `Armin_motors.py`: driver initialization, Armin's wheel equations, manual WASD
   handling, auto search/follow behaviour, and optional dribbler control.
-- `Armin_vision.py`: camera configuration, calibration loading, CLAHE brightness
+- `Armin_vision.py`: camera configuration, exposure and white-balance controls, CLAHE brightness
   correction, contour selection, and debug overlay drawing.
 - `Armin_websocket.py`: browser command parsing and JPEG broadcasting.
 - `Armins_camera_code.py`: standalone interactive calibration utility.
@@ -57,7 +57,6 @@ clients may connect; each receives the same frame stream.
 
 ## Calibration
 
-Run `Armins_camera_code.py` under the match lighting, keep the ball centred when
-prompted, and save the generated `calibration.json` beside the controller.
-The main controller uses its exposure and white-balance values at startup; its
-live HSV and CLAHE values still come from `VisionConfig` and browser messages.
+The main controller uses its exposure and white-balance values from
+`CameraConfig` at startup. Its live HSV and CLAHE values still come from
+`VisionConfig` and browser messages.

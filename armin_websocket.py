@@ -86,7 +86,7 @@ class WebSocketController:
     def _update_vision_params(self, data: dict) -> None:
         tunable = {
             'h_low', 's_low', 'v_low', 'h_high', 's_high', 'v_high',
-            'min_contour_area', 'dead_zone_radius', 'ball_dribble_radius',
+            'min_contour_area', 'dead_zone_radius', 'ball_dribble_radius', 'debug_mask'
         }
         for key in tunable:
             if key in data:
