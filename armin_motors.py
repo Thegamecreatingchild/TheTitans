@@ -130,7 +130,6 @@ class MotorController:
         """Search when the ball is absent; otherwise drive toward its bearing."""
         if self.robot_state.has_possession and ball_visible:
             self._debug(f"[auto] has possession and ball visible -> stop()")
-            self.spin(self.config.max_speed // 2) # Temp code for debugging.
             return
         
         if not ball_visible:

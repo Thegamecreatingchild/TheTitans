@@ -26,6 +26,13 @@ class VisionService:
     def __init__(self, camera_config: CameraConfig, config: VisionConfig) -> None:
         self.camera_config = camera_config
         self.config = config
+        self.valid_mask = cv2.imread("valid_region_mask.png", cv2.IMREAD_GRAYSCALE)
+        if self.valid_mask is None:
+            raise FileNotFoundError(
+                "valid_region_mask.png not found or unreadable — "
+                "generate it before starting VisionService."
+            )
+        self.valid_mask = cv2.rotate(self.valid_mask, cv2.ROTATE_90_COUNTERCLOCKWISE)
         self._clahe = self._create_clahe()
 
     def setup_camera(self) -> Picamera2:
@@ -47,6 +54,7 @@ class VisionService:
         
         picam.start()
         # Setting the camera's fps to be higher by reducing the exposure time and various others.
+        print("valid_mask:", self.valid_mask.shape)
         picam.set_controls({
             'AeEnable': False,
             'AwbEnable': False,
@@ -92,6 +100,16 @@ class VisionService:
         lower = np.array([self.config.h_low, self.config.s_low, self.config.v_low])
         upper = np.array([self.config.h_high, self.config.s_high, self.config.v_high])
         mask = cv2.inRange(hsv, lower, upper)
+
+        if self.valid_mask.shape[:2] != mask.shape[:2]:
+            self.valid_mask = cv2.resize(
+                self.valid_mask,
+                (mask.shape[1], mask.shape[0]),  # (width, height)
+                interpolation=cv2.INTER_NEAREST,
+            )
+
+        mask = cv2.bitwise_and(mask, self.valid_mask)
+
         contours, _ = cv2.findContours(
             mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )

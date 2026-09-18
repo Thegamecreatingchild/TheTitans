@@ -186,7 +186,7 @@ class ArminApplication:
                     f'[auto] last detection {now - ball.last_seen:.2f}s ago '
                     f'> BALL_LOST_TIMEOUT ({timeout}s) -> treated as not visible'
                 )
-            self.robot_motors.apply_auto(False, 0.0, 0.0)
+            self.robot_motors.stop()
 
     def shutdown(self) -> None:
         """Stop future loops and remove motor output immediately."""

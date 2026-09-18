@@ -62,7 +62,7 @@ class VisionConfig:
     ball_lost_timeout: float = 0.3
     clahe_clip_limit: float = 2.5
     clahe_tile_grid: Tuple[int, int] = (8, 8)
-    debug_mask : bool = True
+    debug_mask : bool = False
 
 
 @dataclass(frozen=True)
