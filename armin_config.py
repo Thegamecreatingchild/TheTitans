@@ -80,6 +80,8 @@ class VisionConfig:
     blue_goal_v_high : int = 100
 
     goal_stop_distance : int = 100
+    goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
+    target_goal : str = 'yellow_goal'  # 'yellow_goal' or 'blue_goal' - the goal we attack
     
 
 @dataclass(frozen=True)

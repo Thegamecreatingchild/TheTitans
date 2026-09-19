@@ -39,6 +39,7 @@ class MotorController:
         self.ORBIT_RADIUS = 170            # px — target standoff distance from the ball
         self.ORBIT_ANGLE_TOLERANCE = 10.0  # deg — "close enough to dead ahead" = arrived
         self.ORBIT_RADIAL_GAIN = 400_000   # motor units per px of radial error — placeholder, tune on hardware
+        self.GOAL_ALIGN_TOLERANCE = 15.0   # deg — goal within this of dead ahead = drive straight
 
     def setup(self) -> None:
         """Create and configure the four drive drivers and optional dribbler."""
@@ -96,6 +97,11 @@ class MotorController:
         for motor in self.motors:
             motor.set_speed(speed)
 
+    def stop_wheels(self) -> None:
+        """Zero the drive wheels only; the dribbler keeps its current state."""
+        for motor in self.motors:
+            motor.set_speed(0)
+
     def stop(self) -> None:
         """Stop every motor including dribbler."""
         for motor in self.motors:
@@ -138,7 +144,7 @@ class MotorController:
 
     def drive_to_the_ball(self, ball_visible: bool, ball_angle: float, distance: float) -> None:
         """Search when the ball is absent; otherwise drive toward its bearing."""
-        print("Driving to ball")
+        self._debug("Driving to ball")
         if self.robot_state.has_possession and ball_visible:
             self._debug(f"[auto] has possession and ball visible -> stop()")
             return
@@ -156,10 +162,11 @@ class MotorController:
         )
         self.move(ball_angle, speed)
 
-    def orbit_to_behind_ball(self) -> bool:
-        """Sweep around the ball with pure translation (no spin) until it's
-        dead ahead. Returns True once arrived."""
-        print("Orbiting")
+    def orbit_to_behind_ball(self, target_bearing: float = 0.0) -> bool:
+        """Sweep around the ball with pure translation (no spin) until it lies on
+        ``target_bearing`` (robot frame, 0 = ahead; pass the goal bearing to line
+        the ball up with the goal). Returns True once arrived."""
+        self._debug("Orbiting")
         offset = self.robot_state.ball.offset
         if offset is None:
             self.stop()
@@ -167,12 +174,14 @@ class MotorController:
 
         dx, dy = offset
         distance = math.hypot(dx, dy)
-        ball_bearing = math.degrees(math.atan2(dx, -dy)) % 360
-        angular_error = ((ball_bearing + 180) % 360) - 180  # signed, (-180, 180]
+        ball_bearing = (
+            math.degrees(math.atan2(dx, -dy)) + self.vision_config.camera_rotation_offset
+        ) % 360
+        angular_error = ((ball_bearing - target_bearing + 180) % 360) - 180  # signed, (-180, 180]
 
         if abs(angular_error) <= self.ORBIT_ANGLE_TOLERANCE and abs(distance - self.ORBIT_RADIUS) <= self.ORBIT_RADIUS * 0.15:
-            self.stop()
-            print("Arrived behind ball")
+            self.stop_wheels()
+            self._debug("Arrived behind ball")
             return True
 
         # sweep perpendicular to the ball, easing in as we approach the target angle
@@ -195,25 +204,25 @@ class MotorController:
         self.move(final_bearing, final_speed)
         return False
 
-    def drive_to_goal(self, goal_visible: bool, goal_angle: float, distance: float) -> None:
-        """Drive toward the goal when visible, otherwise stop."""
-        print("driving to goal")
-        if not goal_visible:
-            self._debug(f"[auto] goal not visible (or stale) -> stop()")
-            self.stop()
-            return
+    def search_for_goal(self) -> None:
+        """Slowly rotate to look for the goal while keeping the ball in the dribbler."""
+        self.spin(int(self.config.max_speed * 0.2))
+        self.spin_dribbler(True)
 
-        speed = int(self.config.max_speed)
-        if distance <= self.vision_config.goal_stop_distance:
-            self._debug(f"[auto] goal at angle={goal_angle:.1f}deg, distance={distance:.1f}px -> stop()")
-            self.stop()
-            return
+    def drive_to_goal(self, goal_angle: float, distance: float) -> None:
+        """Rotate to face the goal, then drive straight at it with the dribbler on.
 
-        self._debug(
-            f"[auto] goal at angle={goal_angle:.1f}deg, distance={distance:.1f}px "
-            f"-> move(degree={goal_angle:.1f}, speed={speed})"
-        )
-        self.move(goal_angle, speed)
+        Facing first (instead of translating sideways toward the goal) keeps the
+        ball against the dribbler rather than dragging it away.
+        """
+        error = ((goal_angle + 180) % 360) - 180  # signed; + means goal is clockwise
+        if abs(error) > self.GOAL_ALIGN_TOLERANCE:
+            self._debug(f"[auto] goal at {goal_angle:.1f}deg (err {error:.1f}) -> rotating to face it")
+            self.spin(int(math.copysign(self.config.max_speed * 0.3, error)))  # + is CW
+        else:
+            self._debug(f"[auto] goal aligned, distance={distance:.1f}px -> driving forward")
+            self.move(0, int(self.config.max_speed))
+        self.spin_dribbler(True)
 
     def debug(self, message: str) -> None:
         self._debug(message)

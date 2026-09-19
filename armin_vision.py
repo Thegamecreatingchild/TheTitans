@@ -84,13 +84,14 @@ class VisionService:
         )
 
     def process_frame(
-        self, picam, target: str = 'ball'
-    ) -> Tuple[np.ndarray, Optional[Tuple[int, int]]]:
-        """Capture, threshold, select, and annotate one target in a frame.
+        self, picam
+    ) -> Tuple[np.ndarray, Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+        """Capture one frame and return ``(frame, ball_offset, goal_offset)``.
 
-        ``target`` selects both the HSV range and the contour selector. Ball
-        detection also applies the saturation boost used by its calibration;
-        goal detection uses the camera HSV values unchanged.
+        Both targets are detected on every frame from the same capture. The ball
+        uses the saturation-boosted HSV image its calibration was tuned against;
+        the goal uses the camera HSV values unchanged. An offset is ``None`` when
+        that target is not found.
         """
         frame = picam.capture_array()
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
@@ -99,46 +100,59 @@ class VisionService:
         height, width = frame.shape[:2]
         centre_x, centre_y = width // 2, height // 2
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        lower, upper = self._target_bounds(target)
-        if target == 'ball':
-            h, s, v = cv2.split(hsv)
-            s = np.clip(s * 1.8, 0, 255).astype(np.uint8)
-            hsv = cv2.merge([h, s, v])
-        mask = cv2.inRange(hsv, lower, upper)
 
-        if self.valid_mask.shape[:2] != mask.shape[:2]:
+        h, s, v = cv2.split(hsv)
+        s_boosted = np.clip(s * 1.8, 0, 255).astype(np.uint8)
+        hsv_ball = cv2.merge([h, s_boosted, v])
+
+        if self.valid_mask.shape[:2] != hsv.shape[:2]:
             self.valid_mask = cv2.resize(
                 self.valid_mask,
-                (mask.shape[1], mask.shape[0]),  # (width, height)
+                (hsv.shape[1], hsv.shape[0]),  # (width, height)
                 interpolation=cv2.INTER_NEAREST,
             )
 
-        mask = cv2.bitwise_and(mask, self.valid_mask)
+        goal_target = self.config.target_goal
+        ball_mask = self._masked_threshold(hsv_ball, 'ball')
+        goal_mask = self._masked_threshold(hsv, goal_target)
 
-        contours, _ = cv2.findContours(
-            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        finder = self.find_ball if target == 'ball' else self.find_goal
-        target_position = finder(
-            contours,
-            self.config.min_contour_area,
-        )
+        ball = self.find_ball(self._contours(ball_mask), self.config.min_contour_area)
+        goal = self.find_goal(self._contours(goal_mask), self.config.goal_min_contour_area)
 
         cv2.circle(frame, (centre_x, centre_y), 4, (0, 255, 0), -1)
 
-        offset = None
-        if target_position is not None:
-            target_x, target_y = target_position
-            offset = (target_x - centre_x, target_y - centre_y)
-            cv2.circle(frame, (target_x, target_y), 5, (0, 0, 255), -1)
-            cv2.line(frame, (centre_x, centre_y), target_position, (255, 0, 0), 2)
+        ball_offset = self._annotate(frame, ball, centre_x, centre_y, (0, 0, 255), (255, 0, 0))
+        goal_offset = self._annotate(frame, goal, centre_x, centre_y, (0, 255, 255), (0, 200, 255))
 
         if self.config.debug_mask:
-            mask_overlay = frame.copy()
-            mask_overlay[mask > 0] = (0, 255, 0)
-            frame = cv2.addWeighted(frame, 0.7, mask_overlay, 0.3, 0)
-        
-        return frame, offset
+            ball_layer = frame.copy()
+            ball_layer[ball_mask > 0] = (0, 255, 0)
+            goal_layer = frame.copy()
+            goal_layer[goal_mask > 0] = (255, 0, 255)
+            frame = cv2.addWeighted(frame, 0.7, ball_layer, 0.3, 0)
+            frame = cv2.addWeighted(frame, 0.7, goal_layer, 0.3, 0)
+
+        return frame, ball_offset, goal_offset
+
+    def _masked_threshold(self, hsv: np.ndarray, target: str) -> np.ndarray:
+        """Threshold ``hsv`` for ``target`` and restrict it to the valid region."""
+        lower, upper = self._target_bounds(target)
+        return cv2.bitwise_and(cv2.inRange(hsv, lower, upper), self.valid_mask)
+
+    @staticmethod
+    def _contours(mask: np.ndarray):
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        return contours
+
+    @staticmethod
+    def _annotate(frame, position, centre_x, centre_y, dot_colour, line_colour):
+        """Draw a target marker + centre line and return its offset from centre."""
+        if position is None:
+            return None
+        x, y = position
+        cv2.circle(frame, (x, y), 5, dot_colour, -1)
+        cv2.line(frame, (centre_x, centre_y), (x, y), line_colour, 2)
+        return (x - centre_x, y - centre_y)
 
     def _target_bounds(self, target: str) -> Tuple[np.ndarray, np.ndarray]:
         """Return the configured HSV bounds for a detection target."""

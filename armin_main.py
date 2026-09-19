@@ -111,28 +111,25 @@ class ArminApplication:
             sys.stdout = self.original_stdout
 
     async def stream_camera(self, picam) -> None:
-        """Publish the latest camera observation and JPEG to connected clients."""
-        last_target = None
+        """Publish the latest ball + goal observations and JPEG to connected clients."""
         while self.robot_state.is_running:
-            target = 'yellow_goal' if self.robot_state.has_possession else 'ball' # target is set, ball or goal depending on possession
-            if target != last_target:
-                print(target)
-                last_target = target
-            
-            frame, offset = self.robot_vision.process_frame(picam, target) # searches for a target
-            if target == 'ball': # If it can see the ball
-                self.robot_state.ball.offset = offset
-                self.robot_state.ball.last_seen = time.time()
-            else:
-                self.robot_state.goal.offset = offset
-                self.robot_state.goal.last_seen = time.time()
+            frame, ball_offset, goal_offset = self.robot_vision.process_frame(picam)
+            now = time.time()
+
+            # Only stamp last_seen on a real detection so staleness checks stay honest.
+            self.robot_state.ball.offset = ball_offset
+            if ball_offset is not None:
+                self.robot_state.ball.last_seen = now
+            self.robot_state.goal.offset = goal_offset
+            if goal_offset is not None:
+                self.robot_state.goal.last_seen = now
 
             self._print_requested_vector()
             success, encoded = cv2.imencode('.jpg', frame)
             if success:
                 await self.robot_websocket.broadcast(encoded.tobytes())
             await asyncio.sleep(self.robot_config.control.camera_loop_delay)
-    
+
     def _print_requested_vector(self) -> None:
         if not self.robot_state.control.print_vector_requested:
             return
@@ -169,46 +166,62 @@ class ArminApplication:
             await asyncio.sleep(self.robot_config.control.motor_loop_delay)
 
     def _apply_auto(self, now: float) -> None:
-        """Reject stale observations before handing a valid bearing to the motors."""
-        
-        ball = self.robot_state.ball
-        timeout = self.robot_config.vision.ball_lost_timeout
-        # BallState owns observations; the timeout is configuration, not an observation.
-        # stale if last ball detect call is too old
-        stale = ball.offset is None or now - ball.last_seen > timeout        
-        if not stale:
-            dx, dy = ball.offset
-            distance = math.hypot(dx, dy)
-            bearing = math.degrees(math.atan2(dx, -dy)) % 360
-            bearing = (bearing + self.robot_config.vision.camera_rotation_offset) % 360 # Update for camera offset
-            
-            # Possession check - if the ball is outside deadzone and inside dribble radius.
-            if self.robot_state.has_possession:
-                goal = self.robot_state.goal
-                dx, dy = goal.offset
-                bearing = (math.degrees(math.atan2(dx, -dy)) + self.robot_config.vision.camera_rotation_offset) % 360
-                self.robot_motors.drive_to_goal(True, bearing, math.hypot(dx, dy))
-            
-            
-            
-            # Drive to the ball
-            if distance <= self.robot_config.vision.orbit_radius:
-                # Begins orbiting
-                if distance > self.robot_config.vision.ball_dribble_radius:
-                    arrived = self.robot_motors.orbit_to_behind_ball()
-                    if arrived:# and distance < self.robot_config.vision.ball_dribble_radius:
-                        print("Arrived behind ball, now dribbling")
-                        self.robot_state.has_possession = True
-                        self.robot_motors.spin_dribbler(True)
+        """Turn fresh ball/goal observations into a single drive decision."""
+        state = self.robot_state
+        vision = self.robot_config.vision
+        motors = self.robot_motors
+        ball, goal = state.ball, state.goal
+        timeout = vision.ball_lost_timeout
+
+        # Stale if never seen this frame or the last detection is too old.
+        ball_ok = ball.offset is not None and now - ball.last_seen <= timeout
+        goal_ok = goal.offset is not None and now - goal.last_seen <= timeout
+
+        if ball_ok:
+            bdx, bdy = ball.offset
+            ball_dist = math.hypot(bdx, bdy)
+            ball_bearing = (math.degrees(math.atan2(bdx, -bdy)) + vision.camera_rotation_offset) % 360
+        if goal_ok:
+            gdx, gdy = goal.offset
+            goal_dist = math.hypot(gdx, gdy)
+            goal_bearing = (math.degrees(math.atan2(gdx, -gdy)) + vision.camera_rotation_offset) % 360
+
+        # Possession is latched: a ball held in the dribbler can sit outside the
+        # valid mask and vanish, so it only clears when the ball is seen escaping
+        # beyond the capture (orbit) radius.
+        if state.has_possession and ball_ok and ball_dist > vision.orbit_radius:
+            motors.debug('[auto] ball escaped capture radius -> possession cleared')
+            state.has_possession = False
+
+        if state.has_possession:
+            if goal_ok:
+                motors.drive_to_goal(goal_bearing, goal_dist)
             else:
-                self.robot_state.has_possession = False
-                self.robot_motors.drive_to_the_ball(True, bearing, distance)
+                motors.debug('[auto] possession but goal not visible -> search_for_goal()')
+                motors.search_for_goal()
+            return
+
+        if not ball_ok:
+            motors.debug(
+                '[auto] no ball detected this frame' if ball.offset is None
+                else f'[auto] last ball detection {now - ball.last_seen:.2f}s ago '
+                     f'> timeout ({timeout}s) -> treated as not visible'
+            )
+            motors.stop()
+            return
+
+        if ball_dist > vision.orbit_radius:
+            motors.drive_to_the_ball(True, ball_bearing, ball_dist)
+        elif ball_dist > vision.ball_dribble_radius:
+            # Line the ball up with the goal so driving at the ball pushes it goalward.
+            target_bearing = goal_bearing if goal_ok else 0.0
+            if motors.orbit_to_behind_ball(target_bearing):
+                print('Arrived behind ball, now dribbling')
+                state.has_possession = True
+                motors.spin_dribbler(True)
         else:
-            if ball.offset is None:
-                print("Nothing detected")
-            else:
-                print("Timed out")
-            self.robot_motors.stop()
+            state.has_possession = True
+            motors.spin_dribbler(True)
 
     def _on_sigint(self) -> None:
         print('\nShutting down...')
