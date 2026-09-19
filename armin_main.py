@@ -112,13 +112,20 @@ class ArminApplication:
 
     async def stream_camera(self, picam) -> None:
         """Publish the latest camera observation and JPEG to connected clients."""
+        last_target = None
         while self.robot_state.is_running:
-            frame, offset = self.robot_vision.process_frame(picam)
-            if offset is not None: # If it can see the ball
+            target = 'yellow_goal' if self.robot_state.has_possession else 'ball' # target is set, ball or goal depending on possession
+            if target != last_target:
+                print(target)
+                last_target = target
+            
+            frame, offset = self.robot_vision.process_frame(picam, target) # searches for a target
+            if target == 'ball': # If it can see the ball
                 self.robot_state.ball.offset = offset
                 self.robot_state.ball.last_seen = time.time()
             else:
-                self.robot_state.ball.offset = None
+                self.robot_state.goal.offset = None
+                self.robot_state.goal.last_seen = time.time()
 
             self._print_requested_vector()
             success, encoded = cv2.imencode('.jpg', frame)
@@ -176,12 +183,24 @@ class ArminApplication:
             
             # Possession check - if the ball is outside deadzone and inside dribble radius.
             if distance <= self.robot_config.vision.orbit_radius:
+                print("Start orbiting")
                 if distance > self.robot_config.vision.ball_dribble_radius:
-                    self.robot_motors.orbit_to_behind_ball()
-                    self.robot_state.has_possession = True
+                    arrived = self.robot_motors.orbit_to_behind_ball()
+                    if arrived and distance < self.robot_config.vision.ball_dribble_radius:
+                        self.robot_state.has_possession = True
+                        self.robot_motors.spin_dribbler(True)
+                            
+            elif self.robot_state.has_possession:
+                if distance > self.robot_config.vision.goal_stop_distance:
+                    self.robot_motors.drive_to_goal(True, bearing, distance)
+                else:
+                    self.robot_motors.debug(f"[auto] has possession and ball is close enough -> stop()")
+                    self.robot_motors.stop()
+                
             else:
+                print("Get closer")
                 self.robot_state.has_possession = False
-                self.robot_motors.apply_auto(True, bearing, distance)
+                self.robot_motors.drive_to_the_ball(True, bearing, distance)
         else:
             if ball.offset is None:
                 self.robot_motors.debug('[auto] no ball detected this frame')

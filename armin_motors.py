@@ -36,46 +36,9 @@ class MotorController:
         self.debug_hz = debug_hz
         # armin_motors.py
 
-        self.ORBIT_RADIUS = 130            # px — target standoff distance from the ball
+        self.ORBIT_RADIUS = 150            # px — target standoff distance from the ball
         self.ORBIT_ANGLE_TOLERANCE = 10.0  # deg — "close enough to dead ahead" = arrived
         self.ORBIT_RADIAL_GAIN = 400_000   # motor units per px of radial error — placeholder, tune on hardware
-
-    def orbit_to_behind_ball(self) -> bool:
-        """Sweep around the ball with pure translation (no spin) until it's
-        dead ahead. Returns True once arrived."""
-        offset = self.robot_state.ball.offset
-        if offset is None:
-            self.stop()
-            return False
-
-        dx, dy = offset
-        distance = math.hypot(dx, dy)
-        ball_bearing = math.degrees(math.atan2(dx, -dy)) % 360
-        angular_error = ((ball_bearing + 180) % 360) - 180  # signed, (-180, 180]
-
-        if abs(angular_error) <= self.ORBIT_ANGLE_TOLERANCE and abs(distance - self.ORBIT_RADIUS) <= self.ORBIT_RADIUS * 0.15:
-            self.stop()
-            return True
-
-        # sweep perpendicular to the ball, easing in as we approach the target angle
-        tangent_dir = ball_bearing + (90 if angular_error > 0 else -90)
-        ease = min(abs(angular_error) / 45.0, 1.0)
-        tangent_speed = self.config.max_speed * 0.5 * ease
-
-        # hold a fixed standoff radius so the sweep doesn't clip or drift from the ball
-        radial_error = distance - self.ORBIT_RADIUS
-        radial_speed = max(-self.config.max_speed * 0.3,
-                            min(self.config.max_speed * 0.3, radial_error * self.ORBIT_RADIAL_GAIN))
-
-        tdx, tdy = math.sin(math.radians(tangent_dir)), -math.cos(math.radians(tangent_dir))
-        rdx, rdy = math.sin(math.radians(ball_bearing)), -math.cos(math.radians(ball_bearing))
-        vx = tangent_speed * tdx + radial_speed * rdx
-        vy = tangent_speed * tdy + radial_speed * rdy
-
-        final_bearing = math.degrees(math.atan2(vx, -vy)) % 360
-        final_speed = int(min(math.hypot(vx, vy), self.config.max_speed))
-        self.move(final_bearing, final_speed)
-        return False
 
     def setup(self) -> None:
         """Create and configure the four drive drivers and optional dribbler."""
@@ -173,8 +136,9 @@ class MotorController:
         self._debug(f"[manual] held={sorted(keys)} -> no recognised key held -> stop()")
         self.stop()
 
-    def apply_auto(self, ball_visible: bool, ball_angle: float, distance: float) -> None:
+    def drive_to_the_ball(self, ball_visible: bool, ball_angle: float, distance: float) -> None:
         """Search when the ball is absent; otherwise drive toward its bearing."""
+        print("Driving to ball")
         if self.robot_state.has_possession and ball_visible:
             self._debug(f"[auto] has possession and ball visible -> stop()")
             return
@@ -191,17 +155,64 @@ class MotorController:
             f"-> move(degree={ball_angle:.1f}, speed={speed})"
         )
         self.move(ball_angle, speed)
-        
-        # Dribbler handling
-        if distance <= self.vision_config.ball_dribble_radius:
-            self._debug(
-                f"[auto] distance {distance:.1f}px <= dribble radius "
-                f"{self.vision_config.ball_dribble_radius}px -> dribbler ENGAGE"
-                f"{'' if self.config.enable_dribbler else ' (skipped, enable_dribbler=False)'}"
-            )
-            self.spin_dribbler(True)
-        else:
-            self.spin_dribbler(False)
+
+    def orbit_to_behind_ball(self) -> bool:
+        """Sweep around the ball with pure translation (no spin) until it's
+        dead ahead. Returns True once arrived."""
+        print("Orbiting")
+        offset = self.robot_state.ball.offset
+        if offset is None:
+            self.stop()
+            return False
+
+        dx, dy = offset
+        distance = math.hypot(dx, dy)
+        ball_bearing = math.degrees(math.atan2(dx, -dy)) % 360
+        angular_error = ((ball_bearing + 180) % 360) - 180  # signed, (-180, 180]
+
+        if abs(angular_error) <= self.ORBIT_ANGLE_TOLERANCE and abs(distance - self.ORBIT_RADIUS) <= self.ORBIT_RADIUS * 0.15:
+            self.stop()
+            return True
+
+        # sweep perpendicular to the ball, easing in as we approach the target angle
+        tangent_dir = ball_bearing + (90 if angular_error > 0 else -90)
+        ease = min(abs(angular_error) / 45.0, 1.0)
+        tangent_speed = self.config.max_speed * 0.5 * ease
+
+        # hold a fixed standoff radius so the sweep doesn't clip or drift from the ball
+        radial_error = distance - self.ORBIT_RADIUS
+        radial_speed = max(-self.config.max_speed * 0.3,
+                            min(self.config.max_speed * 0.3, radial_error * self.ORBIT_RADIAL_GAIN))
+
+        tdx, tdy = math.sin(math.radians(tangent_dir)), -math.cos(math.radians(tangent_dir))
+        rdx, rdy = math.sin(math.radians(ball_bearing)), -math.cos(math.radians(ball_bearing))
+        vx = tangent_speed * tdx + radial_speed * rdx
+        vy = tangent_speed * tdy + radial_speed * rdy
+
+        final_bearing = math.degrees(math.atan2(vx, -vy)) % 360
+        final_speed = int(min(math.hypot(vx, vy), self.config.max_speed))
+        self.move(final_bearing, final_speed)
+        return False
+
+    def drive_to_goal(self, goal_visible: bool, goal_angle: float, distance: float) -> None:
+        """Drive toward the goal when visible, otherwise stop."""
+        print("driving to goal")
+        if not goal_visible:
+            self._debug(f"[auto] goal not visible (or stale) -> stop()")
+            self.spin()
+            return
+
+        speed = int(self.config.max_speed)
+        if distance <= self.vision_config.goal_stop_distance:
+            self._debug(f"[auto] goal at angle={goal_angle:.1f}deg, distance={distance:.1f}px -> stop()")
+            self.stop()
+            return
+
+        self._debug(
+            f"[auto] goal at angle={goal_angle:.1f}deg, distance={distance:.1f}px "
+            f"-> move(degree={goal_angle:.1f}, speed={speed})"
+        )
+        self.move(goal_angle, speed)
 
     def debug(self, message: str) -> None:
         self._debug(message)

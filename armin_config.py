@@ -63,7 +63,7 @@ class VisionConfig:
     ball_lost_timeout: float = 0.3
     clahe_clip_limit: float = 2.5
     clahe_tile_grid: Tuple[int, int] = (8, 8)
-    debug_mask : bool = True
+    debug_mask : bool = False
     
     yellow_goal_h_low: int = 20
     yellow_goal_s_low : int = 235
@@ -79,6 +79,8 @@ class VisionConfig:
     blue_goal_s_high : int = 255
     blue_goal_v_high : int = 100
 
+    min_goal_distance : int = 140
+    
 
 @dataclass(frozen=True)
 class CameraConfig:

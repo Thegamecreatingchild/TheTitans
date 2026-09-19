@@ -28,11 +28,17 @@ class ControlState:
 
 
 @dataclass
+class GoalState:
+    offset: Optional[Tuple[int, int]] = None
+    last_seen: float = 0.0
+
+@dataclass
 class RobotState:
     """All mutable state shared by camera, motor, and WebSocket tasks."""
 
     ball: BallState = field(default_factory=BallState)
     control: ControlState = field(default_factory=ControlState)
+    goal: GoalState = field(default_factory=GoalState)
     clients: Set[object] = field(default_factory=set)
     is_running: bool = True
     has_possession : bool = False

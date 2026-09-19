@@ -83,8 +83,15 @@ class VisionService:
             tileGridSize=self.config.clahe_tile_grid,
         )
 
-    def process_frame(self, picam) -> Tuple[np.ndarray, Optional[Tuple[int, int]]]:
-        """Capture, threshold, select, and annotate one frame."""
+    def process_frame(
+        self, picam, target: str = 'ball'
+    ) -> Tuple[np.ndarray, Optional[Tuple[int, int]]]:
+        """Capture, threshold, select, and annotate one target in a frame.
+
+        ``target`` selects both the HSV range and the contour selector. Ball
+        detection also applies the saturation boost used by its calibration;
+        goal detection uses the camera HSV values unchanged.
+        """
         frame = picam.capture_array()
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
@@ -92,13 +99,11 @@ class VisionService:
         height, width = frame.shape[:2]
         centre_x, centre_y = width // 2, height // 2
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        h, s, v = cv2.split(hsv)
-        sat_gain = 1.8
-        s = np.clip(s * sat_gain, 0, 255).astype(np.uint8)
-        hsv = cv2.merge([h, s, v])
-
-        lower = np.array([self.config.h_low, self.config.s_low, self.config.v_low])
-        upper = np.array([self.config.h_high, self.config.s_high, self.config.v_high])
+        lower, upper = self._target_bounds(target)
+        if target == 'ball':
+            h, s, v = cv2.split(hsv)
+            s = np.clip(s * 1.8, 0, 255).astype(np.uint8)
+            hsv = cv2.merge([h, s, v])
         mask = cv2.inRange(hsv, lower, upper)
 
         if self.valid_mask.shape[:2] != mask.shape[:2]:
@@ -113,7 +118,8 @@ class VisionService:
         contours, _ = cv2.findContours(
             mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
-        ball = self.find_ball(
+        finder = self.find_ball if target == 'ball' else self.find_goal
+        target_position = finder(
             contours,
             centre_x,
             centre_y,
@@ -123,16 +129,50 @@ class VisionService:
         cv2.circle(frame, (centre_x, centre_y), 4, (0, 255, 0), -1)
 
         offset = None
-        if ball is not None:
-            ball_x, ball_y = ball
-            offset = (ball_x - centre_x, ball_y - centre_y)
-            cv2.circle(frame, (ball_x, ball_y), 5, (0, 0, 255), -1)
-            cv2.line(frame, (centre_x, centre_y), ball, (255, 0, 0), 2)
-        
+        if target_position is not None:
+            target_x, target_y = target_position
+            offset = (target_x - centre_x, target_y - centre_y)
+            cv2.circle(frame, (target_x, target_y), 5, (0, 0, 255), -1)
+            cv2.line(frame, (centre_x, centre_y), target_position, (255, 0, 0), 2)
+
         if self.config.debug_mask:
-            return cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR), offset
+            mask_overlay = frame.copy()
+            mask_overlay[mask > 0] = (0, 255, 0)
+            frame = cv2.addWeighted(frame, 0.7, mask_overlay, 0.3, 0)
         
         return frame, offset
+
+    def _target_bounds(self, target: str) -> Tuple[np.ndarray, np.ndarray]:
+        """Return the configured HSV bounds for a detection target."""
+        bounds = {
+            'ball': ('h_low', 's_low', 'v_low', 'h_high', 's_high', 'v_high'),
+            'yellow_goal': (
+                'yellow_goal_h_low', 'yellow_goal_s_low', 'yellow_goal_v_low',
+                'yellow_goal_h_high', 'yellow_goal_s_high', 'yellow_goal_v_high',
+            ),
+            'blue_goal': (
+                'blue_goal_h_low', 'blue_goal_s_low', 'blue_goal_v_low',
+                'blue_goal_h_high', 'blue_goal_s_high', 'blue_goal_v_high',
+            ),
+        }
+        try:
+            h_low, s_low, v_low, h_high, s_high, v_high = bounds[target]
+        except KeyError as exc:
+            raise ValueError(
+                f"Unknown vision target {target!r}; expected ball, yellow_goal, or blue_goal"
+            ) from exc
+
+        lower = np.array([
+            getattr(self.config, h_low),
+            getattr(self.config, s_low),
+            getattr(self.config, v_low),
+        ])
+        upper = np.array([
+            getattr(self.config, h_high),
+            getattr(self.config, s_high),
+            getattr(self.config, v_high),
+        ])
+        return lower, upper
 
     @staticmethod
     def find_ball(contours, centre_x: int, centre_y: int,
@@ -147,4 +187,19 @@ class VisionService:
             ball_x = int(moments['m10'] / moments['m00'])
             ball_y = int(moments['m01'] / moments['m00'])
             return ball_x, ball_y
+        return None
+    
+    @staticmethod
+    def find_goal(contours, centre_x: int, centre_y: int,
+                  min_area: int):
+        """Return the largest qualifying contour centroid, if one exists."""
+        for contour in sorted(contours, key=cv2.contourArea, reverse=True):
+            if cv2.contourArea(contour) <= min_area:
+                break
+            moments = cv2.moments(contour)
+            if moments['m00'] == 0:
+                continue
+            goal_x = int(moments['m10'] / moments['m00'])
+            goal_y = int(moments['m01'] / moments['m00'])
+            return goal_x, goal_y
         return None
