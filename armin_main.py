@@ -20,7 +20,7 @@ import cv2
 import websockets
 from gpiozero import Button
 
-from armin_config import RobotConfig
+from armin_config import RobotConfig, VisionConfig
 from armin_motors import MotorController
 from armin_state import RobotState
 from armin_vision import VisionService
@@ -83,6 +83,8 @@ class ArminApplication:
 
     async def run(self) -> None:
         """Initialize hardware, serve the browser, and run until shutdown."""
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(signal.SIGINT, self._on_sigint)
         self.robot_websocket.set_loop(asyncio.get_running_loop())
         self.robot_motors.setup()
         picam = self.robot_vision.setup_camera()
@@ -173,11 +175,13 @@ class ArminApplication:
             bearing = (bearing + self.robot_config.vision.camera_rotation_offset) % 360 # Update for camera offset
             
             # Possession check - if the ball is outside deadzone and inside dribble radius.
-            if distance <= self.robot_config.vision.ball_dribble_radius and distance > self.robot_config.vision.dead_zone_radius:
-                self.robot_state.has_possession = True
+            if distance <= self.robot_config.vision.orbit_radius:
+                if distance > self.robot_config.vision.ball_dribble_radius:
+                    self.robot_motors.orbit_to_behind_ball()
+                    self.robot_state.has_possession = True
             else:
                 self.robot_state.has_possession = False
-            self.robot_motors.apply_auto(True, bearing, distance)
+                self.robot_motors.apply_auto(True, bearing, distance)
         else:
             if ball.offset is None:
                 self.robot_motors.debug('[auto] no ball detected this frame')
@@ -188,6 +192,10 @@ class ArminApplication:
                 )
             self.robot_motors.stop()
 
+    def _on_sigint(self) -> None:
+        print('\nShutting down...')
+        self.shutdown()   # sets is_running=False and stops motors
+
     def shutdown(self) -> None:
         """Stop future loops and remove motor output immediately."""
         self.robot_state.is_running = False
@@ -196,14 +204,10 @@ class ArminApplication:
 
 def main() -> None:
     application = ArminApplication()
-
-    def shutdown_handler(_signal, _frame):
-        print('\nShutting down...')
-        application.shutdown()
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, shutdown_handler)
-    asyncio.run(application.run())
+    try:
+        asyncio.run(application.run())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == '__main__':

@@ -36,7 +36,7 @@ class MotorController:
         self.debug_hz = debug_hz
         # armin_motors.py
 
-        self.ORBIT_RADIUS = 160            # px — target standoff distance from the ball
+        self.ORBIT_RADIUS = 130            # px — target standoff distance from the ball
         self.ORBIT_ANGLE_TOLERANCE = 10.0  # deg — "close enough to dead ahead" = arrived
         self.ORBIT_RADIAL_GAIN = 400_000   # motor units per px of radial error — placeholder, tune on hardware
 

@@ -49,6 +49,16 @@ class WebSocketController:
     async def handle(self, websocket) -> None:
         """Serve one browser connection until it disconnects."""
         self.state.clients.add(websocket)
+        await websocket.send(json.dumps({
+            'type': 'vision_config',
+            'values': {
+                key: getattr(self.vision_config, key)
+                for key in (
+                    'h_low', 'h_high', 's_low', 's_high', 'v_low', 'v_high',
+                    'min_contour_area', 'ball_dribble_radius',
+                )
+            },
+        }))
         for message in self.log_history:
             await websocket.send(json.dumps({'type': 'debug_log', 'message': message}))
         print('Browser connected')
@@ -86,7 +96,7 @@ class WebSocketController:
     def _update_vision_params(self, data: dict) -> None:
         tunable = {
             'h_low', 's_low', 'v_low', 'h_high', 's_high', 'v_high',
-            'min_contour_area', 'dead_zone_radius', 'ball_dribble_radius', 'debug_mask'
+            'min_contour_area', 'ball_dribble_radius', 'debug_mask'
         }
         for key in tunable:
             if key in data:

@@ -102,6 +102,7 @@ Edit PI_HOST below to your Pi's IP/hostname before use.
     <div class="keycap" data-key="a">A</div><div class="keycap" data-key="s">S</div><div class="keycap" data-key="d">D</div>
     <div class="keycap" data-key="q">Q</div><div></div><div class="keycap" data-key="e">E</div>
     <div></div><div class="keycap" data-key="k">K</div><div></div>
+    <div></div><div class="keycap" data-key="x">X</div><div></div>
   </div>
 </div>
 
@@ -123,7 +124,7 @@ Edit PI_HOST below to your Pi's IP/hostname before use.
 
 <script>
 // ---- Edit this to your Pi's address ----
-const PI_HOST = "192.168.1.56";
+const PI_HOST = "172.20.10.2";
 const WS_URL = `ws://${PI_HOST}:8765`;
 
 let ws;
@@ -163,6 +164,7 @@ function connect() {
       try { data = JSON.parse(event.data); } catch { return; }
       if (data.type === 'debug_state') renderDebugState(data);
       if (data.type === 'debug_log') appendDebugLog(data.message);
+      if (data.type === 'vision_config') applyVisionConfig(data.values);
     }
   });
 }
@@ -209,28 +211,28 @@ function appendDebugLog(message) {
 
 // ---- Detection sliders (mirrors testing_rig's ball_detect_params) ----
 const sliderDefs = [
-  {key: 'h_low',  label: 'Hue low',  min: 0,   max: 179, step: 1, def: 0},
-  {key: 'h_high', label: 'Hue high', min: 0,   max: 179, step: 1, def: 20},
-  {key: 's_low',  label: 'Sat low',  min: 0,   max: 255, step: 1, def: 86},
-  {key: 's_high', label: 'Sat high', min: 0,   max: 255, step: 1, def: 255},
-  {key: 'v_low',  label: 'Val low',  min: 0,   max: 255, step: 1, def: 166},
-  {key: 'v_high', label: 'Val high', min: 0,   max: 255, step: 1, def: 255},
-  {key: 'min_contour_area', label: 'Min contour area', min: 0, max: 2000, step: 10, def: 2},
-  {key: 'dead_zone_radius', label: 'Dead zone radius (px)', min: 0, max: 400, step: 5, def: 135},
-  {key: 'ball_dribble_radius', label: 'Dribble-engage radius (px)', min: 0, max: 400, step: 5, def: 145},
+  {key: 'h_low',  label: 'Hue low',  min: 0,   max: 179, step: 1},
+  {key: 'h_high', label: 'Hue high', min: 0,   max: 179, step: 1},
+  {key: 's_low',  label: 'Sat low',  min: 0,   max: 255, step: 1},
+  {key: 's_high', label: 'Sat high', min: 0,   max: 255, step: 1},
+  {key: 'v_low',  label: 'Val low',  min: 0,   max: 255, step: 1},
+  {key: 'v_high', label: 'Val high', min: 0,   max: 255, step: 1},
+  {key: 'min_contour_area', label: 'Min contour area', min: 0, max: 2000, step: 10},
+  {key: 'ball_dribble_radius', label: 'Dribble-engage radius (px)', min: 0, max: 400, step: 5},
 ];
 
 const container = document.getElementById('sliders');
 sliderDefs.forEach(def => {
   const wrap = document.createElement('label');
-  wrap.innerHTML = `${def.label} <span class="val" id="val-${def.key}">${def.def}</span>`;
+  wrap.innerHTML = `${def.label} <span class="val" id="val-${def.key}">—</span>`;
 
   const input = document.createElement('input');
   input.type = 'range';
+  input.dataset.key = def.key;
   input.min = def.min;
   input.max = def.max;
   input.step = def.step;
-  input.value = def.def;
+  input.value = def.min;
 
   input.addEventListener('input', () => {
     document.getElementById(`val-${def.key}`).textContent = input.value;
@@ -241,6 +243,17 @@ sliderDefs.forEach(def => {
   wrap.appendChild(input);
   container.appendChild(wrap);
 });
+
+function applyVisionConfig(values) {
+  sliderDefs.forEach(def => {
+    const value = values && values[def.key];
+    if (value === undefined) return;
+    const input = document.querySelector(`#sliders input[data-key="${def.key}"]`);
+    if (!input) return;
+    input.value = value;
+    document.getElementById(`val-${def.key}`).textContent = value;
+  });
+}
 
 // ---- Mode switch ----
 const btnAuto = document.getElementById('btnAuto');
@@ -284,7 +297,7 @@ function toggleDebugMotor() {
 btnDebugMotor.addEventListener('click', toggleDebugMotor);
 
 // ---- Manual WASD(+QE) + dribbler key capture ----
-const VALID_KEYS = ['w', 'a', 's', 'd', 'q', 'e', 'k'];
+const VALID_KEYS = ['w', 'a', 's', 'd', 'q', 'e', 'k', 'x'];
 const pressedKeys = new Set();
 
 function keycapFor(key) {

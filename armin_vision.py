@@ -121,13 +121,6 @@ class VisionService:
         )
 
         cv2.circle(frame, (centre_x, centre_y), 4, (0, 255, 0), -1)
-        cv2.circle(
-            frame,
-            (centre_x, centre_y),
-            int(self.config.dead_zone_radius),
-            (128, 128, 128),
-            2,
-        )
 
         offset = None
         if ball is not None:

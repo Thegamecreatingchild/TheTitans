@@ -52,17 +52,32 @@ class VisionConfig:
     h_low: int = 0
     s_low: int = 200
     v_low: int = 77
-    h_high: int = 19
+    h_high: int = 15
     s_high: int = 255
     v_high: int = 255
     min_contour_area: int = 1
     dead_zone_radius: int = 132
-    ball_dribble_radius: int = 170
+    ball_dribble_radius: int = 140
+    orbit_radius: int = 200
     camera_rotation_offset: float = 0.0
     ball_lost_timeout: float = 0.3
     clahe_clip_limit: float = 2.5
     clahe_tile_grid: Tuple[int, int] = (8, 8)
-    debug_mask : bool = False
+    debug_mask : bool = True
+    
+    yellow_goal_h_low: int = 20
+    yellow_goal_s_low : int = 235
+    yellow_goal_v_low : int = 100
+    yellow_goal_h_high: int = 40
+    yellow_goal_s_high : int = 255
+    yellow_goal_v_high : int = 255
+    
+    blue_goal_h_low: int = 95
+    blue_goal_s_low : int = 207
+    blue_goal_v_low : int = 60
+    blue_goal_h_high: int = 105
+    blue_goal_s_high : int = 255
+    blue_goal_v_high : int = 100
 
 
 @dataclass(frozen=True)
