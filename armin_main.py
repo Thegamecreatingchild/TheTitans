@@ -124,7 +124,7 @@ class ArminApplication:
                 self.robot_state.ball.offset = offset
                 self.robot_state.ball.last_seen = time.time()
             else:
-                self.robot_state.goal.offset = None
+                self.robot_state.goal.offset = offset
                 self.robot_state.goal.last_seen = time.time()
 
             self._print_requested_vector()
@@ -171,14 +171,11 @@ class ArminApplication:
     def _apply_auto(self, now: float) -> None:
         """Reject stale observations before handing a valid bearing to the motors."""
         
-        if self.robot_state.has_possession:
-            self.robot_motors.drive_to_goal()
-        
         ball = self.robot_state.ball
         timeout = self.robot_config.vision.ball_lost_timeout
         # BallState owns observations; the timeout is configuration, not an observation.
         # stale if last ball detect call is too old
-        stale = ball.offset is None or now - ball.last_seen > timeout
+        stale = ball.offset is None or now - ball.last_seen > timeout        
         if not stale:
             dx, dy = ball.offset
             distance = math.hypot(dx, dy)
@@ -186,30 +183,31 @@ class ArminApplication:
             bearing = (bearing + self.robot_config.vision.camera_rotation_offset) % 360 # Update for camera offset
             
             # Possession check - if the ball is outside deadzone and inside dribble radius.
+            if self.robot_state.has_possession:
+                goal = self.robot_state.goal
+                dx, dy = goal.offset
+                bearing = (math.degrees(math.atan2(dx, -dy)) + self.robot_config.vision.camera_rotation_offset) % 360
+                self.robot_motors.drive_to_goal(True, bearing, math.hypot(dx, dy))
+            
+            
+            
+            # Drive to the ball
             if distance <= self.robot_config.vision.orbit_radius:
-                print("Start orbiting")
+                # Begins orbiting
                 if distance > self.robot_config.vision.ball_dribble_radius:
                     arrived = self.robot_motors.orbit_to_behind_ball()
                     if arrived:# and distance < self.robot_config.vision.ball_dribble_radius:
                         print("Arrived behind ball, now dribbling")
                         self.robot_state.has_possession = True
                         self.robot_motors.spin_dribbler(True)
-                else:
-                    self.robot_motors.debug(f"[auto] has possession and ball is close enough -> stop()")
-                    self.robot_motors.stop()
-                
             else:
-                print("Get closer")
                 self.robot_state.has_possession = False
                 self.robot_motors.drive_to_the_ball(True, bearing, distance)
         else:
             if ball.offset is None:
-                self.robot_motors.debug('[auto] no ball detected this frame')
+                print("Nothing detected")
             else:
-                self.robot_motors.debug(
-                    f'[auto] last detection {now - ball.last_seen:.2f}s ago '
-                    f'> BALL_LOST_TIMEOUT ({timeout}s) -> treated as not visible'
-                )
+                print("Timed out")
             self.robot_motors.stop()
 
     def _on_sigint(self) -> None:

@@ -79,7 +79,7 @@ class VisionConfig:
     blue_goal_s_high : int = 255
     blue_goal_v_high : int = 100
 
-    goal_stop_distance : int = 140
+    goal_stop_distance : int = 100
     
 
 @dataclass(frozen=True)
