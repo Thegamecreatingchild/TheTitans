@@ -172,6 +172,7 @@ class MotorController:
 
         if abs(angular_error) <= self.ORBIT_ANGLE_TOLERANCE and abs(distance - self.ORBIT_RADIUS) <= self.ORBIT_RADIUS * 0.15:
             self.stop()
+            print("Arrived behind ball")
             return True
 
         # sweep perpendicular to the ball, easing in as we approach the target angle
@@ -199,7 +200,7 @@ class MotorController:
         print("driving to goal")
         if not goal_visible:
             self._debug(f"[auto] goal not visible (or stale) -> stop()")
-            self.spin()
+            self.stop()
             return
 
         speed = int(self.config.max_speed)

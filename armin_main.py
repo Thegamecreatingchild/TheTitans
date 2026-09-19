@@ -170,6 +170,10 @@ class ArminApplication:
 
     def _apply_auto(self, now: float) -> None:
         """Reject stale observations before handing a valid bearing to the motors."""
+        
+        if self.robot_state.has_possession:
+            self.robot_motors.drive_to_goal()
+        
         ball = self.robot_state.ball
         timeout = self.robot_config.vision.ball_lost_timeout
         # BallState owns observations; the timeout is configuration, not an observation.
@@ -186,13 +190,10 @@ class ArminApplication:
                 print("Start orbiting")
                 if distance > self.robot_config.vision.ball_dribble_radius:
                     arrived = self.robot_motors.orbit_to_behind_ball()
-                    if arrived and distance < self.robot_config.vision.ball_dribble_radius:
+                    if arrived:# and distance < self.robot_config.vision.ball_dribble_radius:
+                        print("Arrived behind ball, now dribbling")
                         self.robot_state.has_possession = True
                         self.robot_motors.spin_dribbler(True)
-                            
-            elif self.robot_state.has_possession:
-                if distance > self.robot_config.vision.goal_stop_distance:
-                    self.robot_motors.drive_to_goal(True, bearing, distance)
                 else:
                     self.robot_motors.debug(f"[auto] has possession and ball is close enough -> stop()")
                     self.robot_motors.stop()
