@@ -121,8 +121,6 @@ class VisionService:
         finder = self.find_ball if target == 'ball' else self.find_goal
         target_position = finder(
             contours,
-            centre_x,
-            centre_y,
             self.config.min_contour_area,
         )
 
@@ -175,8 +173,7 @@ class VisionService:
         return lower, upper
 
     @staticmethod
-    def find_ball(contours, centre_x: int, centre_y: int,
-                  min_area: int):
+    def find_ball(contours, min_area: int):
         """Return the largest qualifying contour centroid, if one exists."""
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
             if cv2.contourArea(contour) <= min_area:
@@ -190,8 +187,7 @@ class VisionService:
         return None
     
     @staticmethod
-    def find_goal(contours, centre_x: int, centre_y: int,
-                  min_area: int):
+    def find_goal(contours, min_area: int):
         """Return the largest qualifying contour centroid, if one exists."""
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
             if cv2.contourArea(contour) <= min_area:

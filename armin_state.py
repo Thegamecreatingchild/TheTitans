@@ -1,7 +1,11 @@
-"""Live state shared by the robot's asyncio tasks.
+"""
+Author: Aditya Gantimahapatruni
+Date created: 18/9/2026
 
-These objects contain observations and commands, not configuration. Tasks run
-on one asyncio loop, so updates between ``await`` points are kept simple.
+File purpose: Tracking the ball state
+
+Description:
+Keeps track of the ball's position relative to the robot, the robot's control state, and the goal's position.
 """
 
 from dataclasses import dataclass, field
