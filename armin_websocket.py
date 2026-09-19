@@ -10,7 +10,7 @@ import json
 import time
 
 from armin_config import VisionConfig
-from armin_motors import DRIBBLE_KEY, KEY_DEGREES, ROTATE_KEYS, MotorController
+from armin_motors import DRIBBLE_KEY, KEY_DEGREES, ROTATE_KEYS, ORBIT_KEY, MotorController
 from armin_state import RobotState
 from armin_vision import VisionService
 
@@ -102,7 +102,7 @@ class WebSocketController:
     def _update_keys(self, incoming) -> None:
         valid = {
             key for key in incoming
-            if key in KEY_DEGREES or key in ROTATE_KEYS or key == DRIBBLE_KEY
+            if key in KEY_DEGREES or key in ROTATE_KEYS or key == DRIBBLE_KEY or key == ORBIT_KEY
         }
         self.state.control.active_keys = valid
         self.state.control.keys_last_seen = time.time()

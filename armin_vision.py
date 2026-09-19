@@ -118,7 +118,6 @@ class VisionService:
             centre_x,
             centre_y,
             self.config.min_contour_area,
-            self.config.dead_zone_radius,
         )
 
         cv2.circle(frame, (centre_x, centre_y), 4, (0, 255, 0), -1)
@@ -144,7 +143,7 @@ class VisionService:
 
     @staticmethod
     def find_ball(contours, centre_x: int, centre_y: int,
-                  min_area: int, ignore_radius: int):
+                  min_area: int):
         """Return the largest qualifying contour centroid, if one exists."""
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
             if cv2.contourArea(contour) <= min_area:
@@ -154,7 +153,5 @@ class VisionService:
                 continue
             ball_x = int(moments['m10'] / moments['m00'])
             ball_y = int(moments['m01'] / moments['m00'])
-            if math.hypot(ball_x - centre_x, ball_y - centre_y) < ignore_radius:
-                continue
             return ball_x, ball_y
         return None

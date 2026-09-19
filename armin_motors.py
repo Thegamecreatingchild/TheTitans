@@ -20,7 +20,7 @@ KEY_DEGREES = {'w': 0, 'd': 90, 's': 180, 'a': 270}
 # Rotate keys use the same convention as the camera: 1 is clockwise, -1 is counterclockwise.
 ROTATE_KEYS = {'q': 1, 'e': -1}
 DRIBBLE_KEY = 'k'
-
+ORBIT_KEY = 'x'
 
 class MotorController:
     """Own initialized drive motors and translate decisions into wheel speeds."""
@@ -34,6 +34,48 @@ class MotorController:
         self.dribbler_motor = None
         self._debug_last_print = 0.0
         self.debug_hz = debug_hz
+        # armin_motors.py
+
+        self.ORBIT_RADIUS = 160            # px — target standoff distance from the ball
+        self.ORBIT_ANGLE_TOLERANCE = 10.0  # deg — "close enough to dead ahead" = arrived
+        self.ORBIT_RADIAL_GAIN = 400_000   # motor units per px of radial error — placeholder, tune on hardware
+
+    def orbit_to_behind_ball(self) -> bool:
+        """Sweep around the ball with pure translation (no spin) until it's
+        dead ahead. Returns True once arrived."""
+        offset = self.robot_state.ball.offset
+        if offset is None:
+            self.stop()
+            return False
+
+        dx, dy = offset
+        distance = math.hypot(dx, dy)
+        ball_bearing = math.degrees(math.atan2(dx, -dy)) % 360
+        angular_error = ((ball_bearing + 180) % 360) - 180  # signed, (-180, 180]
+
+        if abs(angular_error) <= self.ORBIT_ANGLE_TOLERANCE and abs(distance - self.ORBIT_RADIUS) <= self.ORBIT_RADIUS * 0.15:
+            self.stop()
+            return True
+
+        # sweep perpendicular to the ball, easing in as we approach the target angle
+        tangent_dir = ball_bearing + (90 if angular_error > 0 else -90)
+        ease = min(abs(angular_error) / 45.0, 1.0)
+        tangent_speed = self.config.max_speed * 0.5 * ease
+
+        # hold a fixed standoff radius so the sweep doesn't clip or drift from the ball
+        radial_error = distance - self.ORBIT_RADIUS
+        radial_speed = max(-self.config.max_speed * 0.3,
+                            min(self.config.max_speed * 0.3, radial_error * self.ORBIT_RADIAL_GAIN))
+
+        tdx, tdy = math.sin(math.radians(tangent_dir)), -math.cos(math.radians(tangent_dir))
+        rdx, rdy = math.sin(math.radians(ball_bearing)), -math.cos(math.radians(ball_bearing))
+        vx = tangent_speed * tdx + radial_speed * rdx
+        vy = tangent_speed * tdy + radial_speed * rdy
+
+        final_bearing = math.degrees(math.atan2(vx, -vy)) % 360
+        final_speed = int(min(math.hypot(vx, vy), self.config.max_speed))
+        self.move(final_bearing, final_speed)
+        return False
 
     def setup(self) -> None:
         """Create and configure the four drive drivers and optional dribbler."""
@@ -112,6 +154,11 @@ class MotorController:
                 self.spin_dribbler(self.config.enable_dribbler and DRIBBLE_KEY in keys)
                 return
 
+        if ORBIT_KEY in keys:
+            arrived = self.orbit_to_behind_ball()
+            self._debug(f"[manual] orbit -> arrived={arrived}")
+            return
+        
         for key, degree in KEY_DEGREES.items():
             if key in keys:
                 speed = int(self.config.max_speed * 0.7)
