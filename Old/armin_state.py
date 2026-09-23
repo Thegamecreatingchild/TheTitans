@@ -46,3 +46,4 @@ class RobotState:
     clients: Set[object] = field(default_factory=set)
     is_running: bool = True
     has_possession : bool = False
+    has_orbited : bool = False

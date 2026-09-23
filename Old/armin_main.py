@@ -166,7 +166,7 @@ class ArminApplication:
                     not control.active_keys
                     or now - control.keys_last_seen > self.robot_config.control.key_lost_timeout
                 )
-                if stale:
+                if stale: # Stale if never seen this frame or the last detection is too old.
                     self.robot_motors.debug('[manual] no keys held or stale -> stop()')
                     self.robot_motors.stop()
                 else:
@@ -182,8 +182,7 @@ class ArminApplication:
         motors = self.robot_motors
         ball, goal = state.ball, state.goal
         timeout = vision.ball_lost_timeout
-
-        # Stale if never seen this frame or the last detection is too old.
+        
         if ball.offset is None and now - ball.last_seen > timeout:
             ball_still_visible = None
         else:
@@ -210,36 +209,45 @@ class ArminApplication:
         # Possession is latched: a ball held in the dribbler can sit outside the
         # bot mask and vanish, so it only clears when the ball is seen escaping
         # beyond the capture (orbit) radius.
-        if state.has_possession and ball_still_visible and ball_distance > vision.orbit_radius:
-            motors.debug('[auto] ball escaped capture radius -> possession cleared')
+        if state.has_possession and ball_still_visible and ball_distance > motors.config.orbit_standoff_radius:
+            print('[auto] ball escaped capture radius -> possession cleared')
             state.has_possession = False
+            state.has_orbited = False
 
         if state.has_possession:
             if goal_still_visible:
                 motors.drive_to_goal(goal_bearing, goal_distance)
             else:
-                motors.debug('[auto] possession but goal not visible -> search_for_goal()')
-                motors.search_for_goal()
+                print('[auto] possession but goal not visible -> search_for_goal()')
+                motors.spin(motors.config.goal_search_speed_ratio)
             return
 
         if not ball_still_visible:
-            motors.debug(
+            print(
                 '[auto] no ball detected this frame' if ball.offset is None
                 else f'[auto] last ball detection {now - ball.last_seen:.2f}s ago '
                      f'> timeout ({timeout}s) -> treated as not visible'
             )
-            motors.stop()
+            motors.spin(motors.config.max_speed * 0.3)
             return
 
-        if ball_distance > vision.orbit_radius:
+        if state.has_orbited and not state.has_possession:
+            motors.spin_to_bearing(3, 1.2)
+            motors.move(ball_bearing, motors.config.max_speed * 0.3)
+            if ball_distance <= vision.ball_dribble_radius:
+                state.has_possession = True
+        
+        elif ball_distance > vision.orbit_radius:
             motors.drive_to_the_ball(True, ball_bearing, ball_distance)
-        elif ball_distance > vision.ball_dribble_radius:
+            state.has_orbited = False
+            
+        elif ball_distance > vision.ball_dribble_radius or ball_bearing != goal_bearing - motors.config.goal_align_tolerance:
             # Line the ball up with the goal so driving at the ball pushes it goalward.
             target_bearing = goal_bearing if goal_still_visible else 0.0
             if motors.orbit_to_behind_ball(target_bearing):
+                state.has_orbited = True
                 print('Arrived behind ball, now dribbling')
-                state.has_possession = True
-                motors.spin_dribbler(True)
+                return
         else:
             state.has_possession = True
             motors.spin_dribbler(True)

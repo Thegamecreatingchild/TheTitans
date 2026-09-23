@@ -36,8 +36,8 @@ class MotorConfig:
     dribbler_address: int = 29
     dribbler_calibration: Tuple[int, int] = (1437511680, 1245)
     dribbler_speed: int = 100_000_000
-    orbit_standoff_radius: int = 170
-    orbit_arrived_angle_tolerance: float = 10.0
+    orbit_standoff_radius: int = 175
+    orbit_arrived_angle_tolerance: float = 1.0
     orbit_arrived_radius_tolerance_ratio: float = 0.15
     orbit_full_speed_angle: float = 45.0
     orbit_max_tangential_speed_ratio: float = 0.5
@@ -46,7 +46,7 @@ class MotorConfig:
     drive_to_ball_speed_ratio: float = 1.0
     goal_search_speed_ratio: float = 0.2
     goal_rotation_speed_ratio: float = 0.3
-    goal_align_tolerance: float = 15.0
+    goal_align_tolerance: float = 1.5
 
     # The previous version wrapped each pair in MotorCalibration objects:
     # calibrations = (
@@ -64,17 +64,17 @@ class VisionConfig:
     ball_lower: Tuple[int, int, int] = (0, 200, 77)
     ball_upper: Tuple[int, int, int] = (15, 255, 255)
     min_contour_area: int = 1
-    dead_zone_radius: int = 132
-    ball_dribble_radius: int = 140
-    orbit_radius: int = 200
-    camera_rotation_offset: float = 90.0
-    ball_lost_timeout: float = 0.3
+    # dead_zone_radius: int = 132
+    ball_dribble_radius: int = 145
+    orbit_radius: int = 210
+    camera_rotation_offset: float = 0 #-90.0
+    ball_lost_timeout: float = 0.5
     clahe_clip_limit: float = 2.5
     clahe_tile_grid: Tuple[int, int] = (8, 8)
-    debug_mask : bool = False
+    debug_mask : bool = True
     valid_mask_path: str = 'bot_mask.png'
     
-    yellow_goal_lower: Tuple[int, int, int] = (20, 235, 100)
+    yellow_goal_lower: Tuple[int, int, int] = (20, 235, 30)
     yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
     blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
     blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
@@ -82,15 +82,6 @@ class VisionConfig:
     goal_stop_distance : int = 100
     goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
     target_goal : str = 'yellow_goal'  # 'yellow_goal' or 'blue_goal' - the goal we attack
-
-    # Previous modular form retained as documentation while the simpler tuple
-    # form above is used by the active code:
-    # h_low, s_low, v_low = 0, 200, 77
-    # h_high, s_high, v_high = 15, 255, 255
-    # yellow_goal_h_low, yellow_goal_s_low, yellow_goal_v_low = 20, 235, 100
-    # yellow_goal_h_high, yellow_goal_s_high, yellow_goal_v_high = 40, 255, 255
-    # blue_goal_h_low, blue_goal_s_low, blue_goal_v_low = 95, 207, 60
-    # blue_goal_h_high, blue_goal_s_high, blue_goal_v_high = 105, 255, 100
     
 
 @dataclass(frozen=True)
@@ -99,7 +90,7 @@ class CameraConfig:
 
     size: Tuple[int, int] = (640, 480)
     fps: int = 120
-    exposure_time: int = 8333
+    exposure_time: int = 66656
     analogue_gain: float = 8.677966117858887
     colour_gains: Tuple[float, float] = (2.4364535808563232, 1.9698092937469482)
 
@@ -121,8 +112,8 @@ class ControlConfig:
 
     key_lost_timeout: float = 0.3
     motor_loop_delay: float = 0.02
-    camera_loop_delay: float = 0.03
-    debug_motor: bool = False
+    camera_loop_delay: float = 0.01
+    debug_motor: bool = True
     debug_print_hz: int = 5
     movement_switch_gpio: int = 26
     manual_translation_speed_ratio: float = 0.7

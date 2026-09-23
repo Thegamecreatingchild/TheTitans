@@ -89,9 +89,36 @@ class MotorController:
 
     def spin(self, speed: int) -> None:
         """Self Explanatory. If you needed to hover over this you really are a dumbass."""
+        if type(speed) is float:
+            speed = int(speed)
+            
         for motor in self.motors:
             motor.set_speed(speed)
 
+    def spin_to_bearing(self, target_bearing: float, tolerance: float = None) -> bool:
+        """Rotate in place (no translation) until the robot faces ``target_bearing``
+        (robot frame, 0 = ahead). Returns True once arrived and stopped."""
+        tolerance = self.ORBIT_ANGLE_TOLERANCE if tolerance is None else tolerance
+
+        # Use the ball's current bearing as "where we are pointed" if that's what
+        # you're aligning to target_bearing against — otherwise swap this for
+        # whatever bearing you're tracking (e.g. IMU yaw vs a goal bearing).
+        current_bearing = 0.0  # <-- replace with the bearing you're correcting, see note below
+
+        angular_error = ((current_bearing - target_bearing + 180) % 360) - 180  # signed, (-180, 180]
+
+        if abs(angular_error) <= tolerance:
+            self.stop_wheels()
+            self._debug(f"[spin] arrived at bearing {target_bearing:.1f} (err {angular_error:.1f})")
+            return True
+
+        ease = min(abs(angular_error) / self.ORBIT_FULL_SPEED_ANGLE, 1.0) if hasattr(self, 'ORBIT_FULL_SPEED_ANGLE') else min(abs(angular_error) / 45.0, 1.0)
+        speed = int(math.copysign(self.config.max_speed * 0.3 * ease, angular_error))  # + is CW
+
+        self._debug(f"[spin] target={target_bearing:.1f} err={angular_error:.1f} -> spin(speed={speed})")
+        self.spin(speed)
+        return False
+    
     def stop_wheels(self) -> None:
         """Zero the drive wheels only; the dribbler keeps its current state."""
         for motor in self.motors:
@@ -175,10 +202,11 @@ class MotorController:
         the ball up with the goal). Returns True once arrived."""
         self._debug("Orbiting")
         offset = self.robot_state.ball.offset
+
         if offset is None:
             self.stop()
             return False
-
+        
         dx, dy = offset
         distance = math.hypot(dx, dy)
         ball_bearing = (
@@ -228,14 +256,12 @@ class MotorController:
 
         final_bearing = math.degrees(math.atan2(vx, -vy)) % 360
         final_speed = int(min(math.hypot(vx, vy), self.config.max_speed))
+        
+        print(final_bearing, final_speed)
+        
         self.move(final_bearing, final_speed)
         return False
-
-    def search_for_goal(self) -> None:
-        """Slowly rotate to look for the goal while keeping the ball in the dribbler."""
-        self.spin(int(self.config.max_speed * self.config.goal_search_speed_ratio))
-        self.spin_dribbler(True)
-
+    
     def drive_to_goal(self, goal_angle: float, distance: float) -> None:
         """Rotate to face the goal, then drive straight at it with the dribbler on.
 
@@ -245,14 +271,7 @@ class MotorController:
         error = ((goal_angle + 180) % 360) - 180  # signed; + means goal is clockwise
         if abs(error) > self.config.goal_align_tolerance:
             self._debug(f"[auto] goal at {goal_angle:.1f}deg (err {error:.1f}) -> rotating to face it")
-            self.spin(
-                int(
-                    math.copysign(
-                        self.config.max_speed * self.config.goal_rotation_speed_ratio,
-                        error,
-                    )
-                )
-            )  # + is CW
+            if not self.spin_to_bearing(goal_angle, self.config.goal_align_tolerance): return
         else:
             self._debug(f"[auto] goal aligned, distance={distance:.1f}px -> driving forward")
             self.move(0, int(self.config.max_speed))
