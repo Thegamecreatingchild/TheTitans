@@ -178,7 +178,7 @@ class MotorController:
             math.degrees(math.atan2(dx, -dy)) + self.vision_config.camera_rotation_offset
         ) % 360
         angular_error = ((ball_bearing - target_bearing + 180) % 360) - 180  # signed, (-180, 180]
-
+        
         if abs(angular_error) <= self.ORBIT_ANGLE_TOLERANCE and abs(distance - self.ORBIT_RADIUS) <= self.ORBIT_RADIUS * 0.15:
             self.stop_wheels()
             self._debug("Arrived behind ball")
