@@ -11,8 +11,8 @@ from typing import Iterable, Set
 import board
 import busio
 
-from armin_config import MotorConfig, VisionConfig
-from armin_state import ControlState
+from Old.armin_config import MotorConfig, VisionConfig
+from Old.armin_state import ControlState
 from steelbar_powerful_bldc_driver import PowerfulBLDCDriver
 
 # Translation keys use the same bearing convention as the camera: 0 is ahead.

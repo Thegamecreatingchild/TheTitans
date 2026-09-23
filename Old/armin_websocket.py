@@ -9,10 +9,10 @@ from collections import deque
 import json
 import time
 
-from armin_config import VisionConfig
-from armin_motors import DRIBBLE_KEY, KEY_DEGREES, ROTATE_KEYS, ORBIT_KEY, MotorController
-from armin_state import RobotState
-from armin_vision import VisionService
+from Old.armin_config import VisionConfig
+from Old.armin_motors import DRIBBLE_KEY, KEY_DEGREES, ROTATE_KEYS, ORBIT_KEY, MotorController
+from Old.armin_state import RobotState
+from Old.armin_vision import VisionService
 
 
 class WebSocketController:
