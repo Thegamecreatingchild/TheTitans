@@ -12,7 +12,7 @@ import board
 import busio
 from adafruit_bno08x import BNO_REPORT_GAME_ROTATION_VECTOR
 from adafruit_bno08x.i2c import BNO08X_I2C
-from Old.armin_config import ImuConfig
+from armin_config import ImuConfig
 
 
 class ImuService:

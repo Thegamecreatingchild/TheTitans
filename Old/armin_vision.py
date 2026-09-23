@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 from picamera2 import Picamera2
 
-from Old.armin_config import CameraConfig, VisionConfig
+from armin_config import CameraConfig, VisionConfig
 
 
 class VisionService:

@@ -11,8 +11,8 @@ from typing import Iterable
 import board
 import busio
 
-from Old.armin_config import ControlConfig, MotorConfig, VisionConfig
-from Old.armin_state import ControlState
+from armin_config import ControlConfig, MotorConfig, VisionConfig
+from armin_state import ControlState
 from steelbar_powerful_bldc_driver import PowerfulBLDCDriver
 
 class MotorController:

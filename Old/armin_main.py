@@ -20,11 +20,11 @@ import cv2
 import websockets
 from gpiozero import Button
 
-from Old.armin_config import RobotConfig, VisionConfig
-from Old.armin_motors import MotorController
-from Old.armin_state import RobotState
-from Old.armin_vision import VisionService
-from Old.armin_websocket import WebSocketController
+from armin_config import RobotConfig, VisionConfig
+from armin_motors import MotorController
+from armin_state import RobotState
+from armin_vision import VisionService
+from armin_websocket import WebSocketController
 
 
 class ConsoleLogTee:

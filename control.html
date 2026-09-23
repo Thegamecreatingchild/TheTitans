@@ -123,8 +123,9 @@ Edit PI_HOST below to your Pi's IP/hostname before use.
 </div>
 
 <script>
-// ---- Edit this to your Pi's address ----
-const PI_HOST = "172.20.10.2";
+// Use the host serving the page; fall back to the robot's current LAN address
+// when control.html is opened directly from disk.
+const PI_HOST = window.location.hostname || "192.168.1.56";
 const WS_URL = `ws://${PI_HOST}:8765`;
 
 let ws;

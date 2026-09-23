@@ -9,10 +9,10 @@ from collections import deque
 import json
 import time
 
-from Old.armin_config import ControlConfig, VisionConfig
-from Old.armin_motors import MotorController
-from Old.armin_state import RobotState
-from Old.armin_vision import VisionService
+from armin_config import ControlConfig, VisionConfig
+from armin_motors import MotorController
+from armin_state import RobotState
+from armin_vision import VisionService
 
 
 class WebSocketController:
