@@ -61,6 +61,7 @@ class ArminApplication:
             self.robot_config.vision,
             self.robot_state.control,
             self.robot_state,
+            self.robot_config.control,
             self.robot_config.control.debug_print_hz,
         )
         self.robot_websocket = WebSocketController(
@@ -146,6 +147,15 @@ class ArminApplication:
             f'distance={distance:.1f}px, bearing={bearing:.1f}deg'
         )
 
+    @staticmethod
+    def _bearing_from_offset(offset, camera_rotation_offset: float) -> float:
+        """Convert an image offset into the robot-frame bearing convention."""
+        offset_x, offset_y = offset
+        return (
+            math.degrees(math.atan2(offset_x, -offset_y))
+            + camera_rotation_offset
+        ) % 360
+
     async def motor_loop(self) -> None:
         """Apply manual commands or ball-following decisions at a fixed interval."""
         while self.robot_state.is_running:
@@ -174,34 +184,45 @@ class ArminApplication:
         timeout = vision.ball_lost_timeout
 
         # Stale if never seen this frame or the last detection is too old.
-        ball_ok = ball.offset is not None and now - ball.last_seen <= timeout
-        goal_ok = goal.offset is not None and now - goal.last_seen <= timeout
+        if ball.offset is None and now - ball.last_seen > timeout:
+            ball_still_visible = None
+        else:
+            ball_still_visible = ball.offset
 
-        if ball_ok:
-            bdx, bdy = ball.offset
-            ball_dist = math.hypot(bdx, bdy)
-            ball_bearing = (math.degrees(math.atan2(bdx, -bdy)) + vision.camera_rotation_offset) % 360
-        if goal_ok:
-            gdx, gdy = goal.offset
-            goal_dist = math.hypot(gdx, gdy)
-            goal_bearing = (math.degrees(math.atan2(gdx, -gdy)) + vision.camera_rotation_offset) % 360
+        if goal.offset is None and now - goal.last_seen > timeout:
+            goal_still_visible = None
+        else:
+            goal_still_visible = goal.offset
+
+        if ball_still_visible:
+            ball_distance = math.hypot(*ball.offset)
+            ball_bearing = self._bearing_from_offset(
+                ball.offset,
+                vision.camera_rotation_offset,
+            )
+        if goal_still_visible:
+            goal_distance = math.hypot(*goal.offset)
+            goal_bearing = self._bearing_from_offset(
+                goal.offset,
+                vision.camera_rotation_offset,
+            )
 
         # Possession is latched: a ball held in the dribbler can sit outside the
-        # valid mask and vanish, so it only clears when the ball is seen escaping
+        # bot mask and vanish, so it only clears when the ball is seen escaping
         # beyond the capture (orbit) radius.
-        if state.has_possession and ball_ok and ball_dist > vision.orbit_radius:
+        if state.has_possession and ball_still_visible and ball_distance > vision.orbit_radius:
             motors.debug('[auto] ball escaped capture radius -> possession cleared')
             state.has_possession = False
 
         if state.has_possession:
-            if goal_ok:
-                motors.drive_to_goal(goal_bearing, goal_dist)
+            if goal_still_visible:
+                motors.drive_to_goal(goal_bearing, goal_distance)
             else:
                 motors.debug('[auto] possession but goal not visible -> search_for_goal()')
                 motors.search_for_goal()
             return
 
-        if not ball_ok:
+        if not ball_still_visible:
             motors.debug(
                 '[auto] no ball detected this frame' if ball.offset is None
                 else f'[auto] last ball detection {now - ball.last_seen:.2f}s ago '
@@ -210,11 +231,11 @@ class ArminApplication:
             motors.stop()
             return
 
-        if ball_dist > vision.orbit_radius:
-            motors.drive_to_the_ball(True, ball_bearing, ball_dist)
-        elif ball_dist > vision.ball_dribble_radius:
+        if ball_distance > vision.orbit_radius:
+            motors.drive_to_the_ball(True, ball_bearing, ball_distance)
+        elif ball_distance > vision.ball_dribble_radius:
             # Line the ball up with the goal so driving at the ball pushes it goalward.
-            target_bearing = goal_bearing if goal_ok else 0.0
+            target_bearing = goal_bearing if goal_still_visible else 0.0
             if motors.orbit_to_behind_ball(target_bearing):
                 print('Arrived behind ball, now dribbling')
                 state.has_possession = True

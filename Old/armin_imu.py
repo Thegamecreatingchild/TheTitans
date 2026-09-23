@@ -12,18 +12,19 @@ import board
 import busio
 from adafruit_bno08x import BNO_REPORT_GAME_ROTATION_VECTOR
 from adafruit_bno08x.i2c import BNO08X_I2C
+from Old.armin_config import ImuConfig
 
 
 class ImuService:
-    def __init__(self, address: int = 0x4A) -> None:
-        self.address = address
+    def __init__(self, config: ImuConfig = None) -> None:
+        self.config = config or ImuConfig()
         self.imu = None
 
     def setup(self, i2c=None) -> None:
         """Start the IMU. Pass the motors' I2C bus object to share it."""
         if i2c is None:
             i2c = busio.I2C(board.SCL, board.SDA)
-        self.imu = BNO08X_I2C(i2c, address=self.address)
+        self.imu = BNO08X_I2C(i2c, address=self.config.address)
         self.imu.enable_feature(BNO_REPORT_GAME_ROTATION_VECTOR)
         print("IMU ready")
 

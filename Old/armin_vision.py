@@ -26,10 +26,10 @@ class VisionService:
     def __init__(self, camera_config: CameraConfig, config: VisionConfig) -> None:
         self.camera_config = camera_config
         self.config = config
-        self.valid_mask = cv2.imread("valid_region_mask.png", cv2.IMREAD_GRAYSCALE)
+        self.valid_mask = cv2.imread(config.valid_mask_path, cv2.IMREAD_GRAYSCALE)
         if self.valid_mask is None:
             raise FileNotFoundError(
-                "valid_region_mask.png not found or unreadable — "
+            f"{config.valid_mask_path} not found or unreadable — "
                 "generate it before starting VisionService."
             )
         self.valid_mask = cv2.rotate(self.valid_mask, cv2.ROTATE_90_COUNTERCLOCKWISE)
@@ -48,10 +48,6 @@ class VisionService:
             },
         )
         picam.configure(config)
-        # debug_config = picam.create_still_configuration()
-        # width, height = debug_config["main"]["size"]
-        # print(width, height)
-        
         picam.start()
         # Setting the camera's fps to be higher by reducing the exposure time and various others.
         print("valid_mask:", self.valid_mask.shape)
@@ -68,8 +64,7 @@ class VisionService:
         )
         return picam
 
-    def update_clahe(self, clip_limit: float = None,
-                     tile_grid: Tuple[int, int] = None) -> None:
+    def update_clahe(self, clip_limit: float = None, tile_grid: Tuple[int, int] = None):
         """Apply live low-light tuning and rebuild the OpenCV CLAHE filter."""
         if clip_limit is not None:
             self.config.clahe_clip_limit = clip_limit
@@ -77,15 +72,13 @@ class VisionService:
             self.config.clahe_tile_grid = tile_grid
         self._clahe = self._create_clahe()
 
-    def _create_clahe(self):
+    def _create_clahe(self) -> cv2.CLAHE:
         return cv2.createCLAHE(
             clipLimit=self.config.clahe_clip_limit,
             tileGridSize=self.config.clahe_tile_grid,
         )
 
-    def process_frame(
-        self, picam
-    ) -> Tuple[np.ndarray, Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+    def process_frame(self, picam) -> Tuple[np.ndarray, Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
         """Capture one frame and return ``(frame, ball_offset, goal_offset)``.
 
         Both targets are detected on every frame from the same capture. The ball
@@ -140,12 +133,12 @@ class VisionService:
         return cv2.bitwise_and(cv2.inRange(hsv, lower, upper), self.valid_mask)
 
     @staticmethod
-    def _contours(mask: np.ndarray):
+    def _contours(mask: np.ndarray) -> list[np.ndarray]:
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         return contours
 
     @staticmethod
-    def _annotate(frame, position, centre_x, centre_y, dot_colour, line_colour):
+    def _annotate(frame, position, centre_x, centre_y, dot_colour, line_colour) -> Optional[Tuple[int, int]]:
         """Draw a target marker + centre line and return its offset from centre."""
         if position is None:
             return None
@@ -157,37 +150,23 @@ class VisionService:
     def _target_bounds(self, target: str) -> Tuple[np.ndarray, np.ndarray]:
         """Return the configured HSV bounds for a detection target."""
         bounds = {
-            'ball': ('h_low', 's_low', 'v_low', 'h_high', 's_high', 'v_high'),
-            'yellow_goal': (
-                'yellow_goal_h_low', 'yellow_goal_s_low', 'yellow_goal_v_low',
-                'yellow_goal_h_high', 'yellow_goal_s_high', 'yellow_goal_v_high',
-            ),
-            'blue_goal': (
-                'blue_goal_h_low', 'blue_goal_s_low', 'blue_goal_v_low',
-                'blue_goal_h_high', 'blue_goal_s_high', 'blue_goal_v_high',
-            ),
+            'ball': (self.config.ball_lower, self.config.ball_upper),
+            'yellow_goal': (self.config.yellow_goal_lower, self.config.yellow_goal_upper),
+            'blue_goal': (self.config.blue_goal_lower, self.config.blue_goal_upper),
         }
         try:
-            h_low, s_low, v_low, h_high, s_high, v_high = bounds[target]
+            lower_values, upper_values = bounds[target]
         except KeyError as exc:
             raise ValueError(
                 f"Unknown vision target {target!r}; expected ball, yellow_goal, or blue_goal"
             ) from exc
 
-        lower = np.array([
-            getattr(self.config, h_low),
-            getattr(self.config, s_low),
-            getattr(self.config, v_low),
-        ])
-        upper = np.array([
-            getattr(self.config, h_high),
-            getattr(self.config, s_high),
-            getattr(self.config, v_high),
-        ])
+        lower = np.array(lower_values)
+        upper = np.array(upper_values)
         return lower, upper
 
     @staticmethod
-    def find_ball(contours, min_area: int):
+    def find_ball(contours, min_area: int) -> Optional[Tuple[int, int]]:
         """Return the largest qualifying contour centroid, if one exists."""
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
             if cv2.contourArea(contour) <= min_area:
@@ -201,7 +180,7 @@ class VisionService:
         return None
     
     @staticmethod
-    def find_goal(contours, min_area: int):
+    def find_goal(contours, min_area: int) -> Optional[Tuple[int, int]]:
         """Return the largest qualifying contour centroid, if one exists."""
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
             if cv2.contourArea(contour) <= min_area:
