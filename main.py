@@ -3,6 +3,8 @@ One script version of the bot's code. This is to make code simpler and easier to
 """
 
 import asyncio
+from collections import deque
+import json
 import math
 import signal
 import sys
@@ -19,7 +21,7 @@ import cv2
 import websockets
 from gpiozero import Button
 
-# An easy way to store data - it is like a record or a struct in other languages. It is used to store calibration values for motors.
+# Dataclasses are an easy way to store data - like a record or a struct in other languages, used to store calibration values for motors here.
 # Accessing anything from inside is as simple as calling calibration.elecangleoffset or calibration.sincoscentre.
 @dataclass
 class Calibration:
@@ -30,6 +32,180 @@ class Calibration:
     """
     elecangleoffset: int
     sincoscentre: int
+
+# ! AI generated class - allows viewing of bots camera feed in a browser, and also allows for remote control of the bot.
+class ConsoleLogTee:
+    """Preserve console output while forwarding complete lines to the UI."""
+
+    def __init__(self, console, on_line) -> None:
+        self.console = console
+        self.on_line = on_line
+        self.pending = ''
+    
+    def write(self, text: str) -> int:
+        """Every printed statement is sent to the console and also forwarded to the WebSocket clients."""
+        self.console.write(text)
+        self.pending += text
+        while '\n' in self.pending:
+            line, self.pending = self.pending.split('\n', 1)
+            if line:
+                self.on_line(line)
+        return len(text)
+
+    def flush(self) -> None:
+        self.console.flush()
+
+
+class WebSocketController:
+    """Handle browser commands and broadcast camera frames and log messages."""
+
+    def __init__(self, robot) -> None:
+        self.robot = robot
+        self.connected_clients = set()
+        self.active_keys: set[str] = set()
+        self.mode = 'auto'
+        self.debug_motor_enabled = False
+        self.log_history = deque(maxlen=200)
+        self.event_loop = None
+        self.last_keys_received = 0.0
+
+    def set_event_loop(self, event_loop) -> None:
+        """Store the event loop used by log callbacks from other threads."""
+        self.event_loop = event_loop
+
+    def record_log(self, message: str) -> None:
+        """Store a console line and publish it to connected browsers."""
+        if not message:
+            return
+        self.log_history.append(message)
+        if self.event_loop is not None:
+            try:
+                self.event_loop.call_soon_threadsafe(
+                    self._schedule_log_broadcast,
+                    message,
+                )
+            except RuntimeError:
+                # The event loop can be closed while the program is shutting down.
+                pass
+
+    def _schedule_log_broadcast(self, message: str) -> None:
+        asyncio.create_task(self.broadcast_log(message))
+
+    async def handle(self, websocket) -> None:
+        """Serve one browser connection until it disconnects."""
+        self.connected_clients.add(websocket)
+        await websocket.send(json.dumps({
+            'type': 'vision_config',
+            'values': self._vision_values(),
+        }))
+        for message in self.log_history:
+            await websocket.send(json.dumps({
+                'type': 'debug_log',
+                'message': message,
+            }))
+
+        print('Browser connected')
+        try:
+            async for message in websocket:
+                if not isinstance(message, str):
+                    continue
+                try:
+                    data = json.loads(message)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(data, dict):
+                    self._handle_message(data)
+        finally:
+            self.connected_clients.discard(websocket)
+            print('Browser disconnected')
+
+    def _vision_values(self) -> dict:
+        """Return the newer Robot vision fields in the browser's slider format."""
+        return {
+            'h_low': self.robot.ball_lower[0],
+            'h_high': self.robot.ball_upper[0],
+            's_low': self.robot.ball_lower[1],
+            's_high': self.robot.ball_upper[1],
+            'v_low': self.robot.ball_lower[2],
+            'v_high': self.robot.ball_upper[2],
+            'min_contour_area': self.robot.ball_min_contour_area,
+            'debug_mask': self.robot.debug_mask,
+        }
+
+    def _handle_message(self, data: dict) -> None:
+        message_type = data.get('type')
+        if message_type == 'params':
+            self._update_vision_params(data)
+        elif message_type == 'mode':
+            self._update_mode(data.get('mode'))
+        elif message_type == 'keys':
+            self._update_keys(data.get('keys', []))
+        elif message_type == 'debug_vector':
+            print(f'[debug] ball offset={self.robot.ball_offset}')
+        elif message_type == 'debug_motor':
+            self.debug_motor_enabled = bool(
+                data.get('enabled', not self.debug_motor_enabled)
+            )
+            print(
+                f"[debug] motor debug logging "
+                f"{'ON' if self.debug_motor_enabled else 'OFF'}"
+            )
+
+    def _update_vision_params(self, data: dict) -> None:
+        """Update slider values while preserving the newer tuple-based config."""
+        ball_lower = list(self.robot.ball_lower)
+        ball_upper = list(self.robot.ball_upper)
+        channel_indexes = {
+            'h_low': (ball_lower, 0),
+            's_low': (ball_lower, 1),
+            'v_low': (ball_lower, 2),
+            'h_high': (ball_upper, 0),
+            's_high': (ball_upper, 1),
+            'v_high': (ball_upper, 2),
+        }
+        for key, (values, index) in channel_indexes.items():
+            if key in data:
+                values[index] = int(data[key])
+
+        self.robot.ball_lower = tuple(ball_lower)
+        self.robot.ball_upper = tuple(ball_upper)
+        if 'min_contour_area' in data:
+            self.robot.ball_min_contour_area = int(data['min_contour_area'])
+        if 'debug_mask' in data:
+            self.robot.debug_mask = bool(data['debug_mask'])
+
+    def _update_mode(self, mode: str) -> None:
+        if mode not in ('auto', 'manual'):
+            return
+        self.mode = mode
+        self.robot.set_control_mode(mode)
+        if mode != 'manual':
+            self.active_keys.clear()
+
+    def _update_keys(self, incoming_keys) -> None:
+        valid_keys = set(self.robot.manual_keys) | set(self.robot.spin_keys) | {'k', 'x'}
+        self.active_keys = {
+            key for key in incoming_keys
+            if key in valid_keys
+        }
+        self.last_keys_received = time.time()
+
+    async def broadcast(self, payload: bytes) -> None:
+        """Send a binary camera frame to every connected browser."""
+        if self.connected_clients:
+            await asyncio.gather(
+                *(client.send(payload) for client in self.connected_clients),
+                return_exceptions=True,
+            )
+
+    async def broadcast_log(self, message: str) -> None:
+        """Send one log message to every connected browser."""
+        if self.connected_clients:
+            payload = json.dumps({'type': 'debug_log', 'message': message})
+            await asyncio.gather(
+                *(client.send(payload) for client in self.connected_clients),
+                return_exceptions=True,
+            )
 
 
 class Motor:
@@ -47,6 +223,7 @@ class Motor:
     def set_speed(self, speed: int):
         """Set the speed of the motor. Speed must be within range of max_speed."""
         self.motor.set_speed(speed)
+
 
 class Robot:
     def __init__(self):
@@ -94,6 +271,8 @@ class Robot:
         self.camera_rotation_offset: float = 90.0
         
         self.ball_offset : Tuple[int] = (0, 0)
+        self.goal_offset: Tuple[int] | None = None
+        self.has_possession: bool = False
         self.ball_lost_timeout: float = 0.3
         
         self.debug_mask : bool = False
@@ -109,9 +288,7 @@ class Robot:
         self.target_goal : str = 'yellow_goal'  # 'yellow_goal' or 'blue_goal' - the goal we attack
 
         self.bot_mask = cv2.imread('bot_mask.png', cv2.IMREAD_GRAYSCALE)
-        self.bot_mask = cv2.rotate(self.bot_mask, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        
-        
+        self.bot_mask = cv2.rotate(self.bot_mask, cv2.ROTATE_90_COUNTERCLOCKWISE)   
         
     def camera_config(self):
         """Configuring everything to do with the camera, including websockets connection and camera settings."""
@@ -124,6 +301,8 @@ class Robot:
     
     def manual_controls_config(self):
         """Configuring everything to do with manual controls, including timeouts and switch pins."""
+        self.control_mode: str = "auto"  # 'auto' or 'manual'
+        
         self.manual_keys: dict[str, int] = {'w': 0, 'd': 90, 's': 180, 'a': 270} # Bearing mappings to each key
         self.spin_keys: dict[str, int] = {'q': 1, 'e': -1}
         
@@ -277,10 +456,15 @@ class Robot:
         
         return cv2.bitwise_and(cv2.inRange(hsv, lower, upper), self.bot_mask)
 
+
+    # Static methods belong to the class, they are not accessible to instances of a class.
+    # In this case the class uses them for calculations that the instances do not need to see - finding the ball, drawing annotations etc.
+    @staticmethod
     def contours(mask: np.ndarray):
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         return contours
-
+    
+    @staticmethod
     def annotate(frame, position, centre_x, centre_y, dot_colour, line_colour):
         """Draw a target marker + centre line and return its offset from centre."""
         if position is None: return None
@@ -289,6 +473,7 @@ class Robot:
         cv2.line(frame, (centre_x, centre_y), (x, y), line_colour, 2)
         return (x - centre_x, y - centre_y)
 
+    @staticmethod
     def find_ball(contours, min_area: int):
         """Return the largest qualifying contour centroid, if one exists."""
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
@@ -302,6 +487,7 @@ class Robot:
             return ball_x, ball_y
         return None
     
+    @staticmethod
     def find_goal(contours, min_area: int):
         """Return the largest qualifying contour centroid, if one exists."""
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
@@ -356,3 +542,122 @@ class Robot:
             frame = cv2.addWeighted(frame, 0.7, goal_layer, 0.3, 0)
         
         return frame, ball_offset, goal_offset
+    
+    # -- Main Loop --
+    
+    def set_control_mode(self, mode: str) -> None:
+        """Set the control mode to either 'auto' or 'manual'."""
+        if mode not in ('auto', 'manual'):
+            return
+        self.control_mode = mode
+        print(f'[switch] mode set to {mode}')
+    
+    async def run(self) -> None:
+        """Initialize hardware, serve the browser, and run robot control loops."""
+        websocket_controller = WebSocketController(self)
+        original_stdout = sys.stdout
+        sys.stdout = ConsoleLogTee(original_stdout, websocket_controller.record_log)
+
+        try:
+            self.setup_motors()
+            camera = self.setup_camera()
+            websocket_controller.set_event_loop(asyncio.get_running_loop())
+            websocket_server = await websockets.serve(
+                websocket_controller.handle,
+                '0.0.0.0',
+                8765,
+            )
+            print('WebSocket control + video available on port 8765.')
+            print('Robot is ready to run.')
+
+            try:
+                await asyncio.gather(
+                    self.stream_camera(camera, websocket_controller),
+                    self.motor_loop(websocket_controller),
+                )
+            finally:
+                websocket_server.close()
+                await websocket_server.wait_closed()
+        finally:
+            self.stop()
+            sys.stdout = original_stdout
+
+    async def stream_camera(self, camera, websocket_controller: WebSocketController) -> None:
+        """Capture detections and broadcast each annotated frame to browsers."""
+        while True:
+            frame, ball_offset, goal_offset = self.process_frame(camera)
+            self.ball_offset = ball_offset
+            self.goal_offset = goal_offset
+
+            success, encoded_frame = cv2.imencode('.jpg', frame)
+            if success:
+                await websocket_controller.broadcast(encoded_frame.tobytes())
+
+            await asyncio.sleep(self.camera_loop_delay)
+
+    async def motor_loop(self, websocket_controller: WebSocketController) -> None:
+        """Apply fresh manual commands or autonomous ball decisions."""
+        while True:
+            if websocket_controller.mode == 'manual':
+                keys_are_stale = (
+                    not websocket_controller.active_keys
+                    or time.time() - websocket_controller.last_keys_received > self.key_lost_timeout
+                )
+                if keys_are_stale:
+                    self.stop()
+                else:
+                    self.apply_manual_keys(websocket_controller.active_keys)
+            else:
+                self.apply_autonomous_control()
+
+            await asyncio.sleep(self.motor_loop_delay)
+
+    def apply_manual_keys(self, active_keys: set[str]) -> None:
+        """Translate the currently held browser keys into motor commands."""
+        for key, rotation_direction in self.spin_keys.items():
+            if key in active_keys:
+                self.spin(rotation_direction * int(self.max_speed * 0.3))
+                return
+
+        for key, movement_bearing in self.manual_keys.items():
+            if key in active_keys:
+                self.move(movement_bearing, int(self.max_speed * 0.7))
+                return
+
+        if 'x' in active_keys:
+            self.orbit_to_dribbling_range()
+            return
+
+        self.stop()
+
+    def apply_autonomous_control(self) -> None:
+        """Use the latest ball and goal observations to choose motor output."""
+        if self.ball_offset is None:
+            self.stop()
+            return
+
+        ball_x, ball_y = self.ball_offset
+        ball_distance = math.hypot(ball_x, ball_y)
+        ball_bearing = (
+            math.degrees(math.atan2(ball_x, -ball_y))
+            + self.camera_rotation_offset
+        ) % 360
+
+        if ball_distance > self.orbit_trigger_radius:
+            self.move(ball_bearing)
+        elif ball_distance > self.dribble_trigger_radius:
+            self.orbit_to_dribbling_range()
+        else:
+            self.has_possession = True
+            self.stop()
+
+def main() -> None:
+    robot = Robot()
+    try:
+        asyncio.run(robot.run())
+    except KeyboardInterrupt:
+        print('Shutting down...')
+
+
+if __name__ == '__main__':
+    main()
