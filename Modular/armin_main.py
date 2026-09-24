@@ -185,54 +185,61 @@ class ArminApplication:
         
         # Find the ball and the goal
         if ball.offset is None and now - ball.last_seen > timeout:
-            ball_still_visible = None
+            ball_vector = None
         else:
-            ball_still_visible = ball.offset
+            ball_vector = ball.offset
 
         if goal.offset is None and now - goal.last_seen > timeout:
-            goal_still_visible = None
+            goal_vector = None
         else:
-            goal_still_visible = goal.offset
+            goal_vector = goal.offset
 
-        if ball_still_visible:
+        if ball_vector:
             ball_distance = math.hypot(*ball.offset)
             ball_bearing = self._bearing_from_offset(
                 ball.offset,
                 vision.camera_rotation_offset,
             )
-        if goal_still_visible:
+        if goal_vector:
             goal_distance = math.hypot(*goal.offset)
             goal_bearing = self._bearing_from_offset(
                 goal.offset,
                 vision.camera_rotation_offset,
             )
 
+        # ! Temporary logic
+        rotation_ease = goal_bearing / 180
+        rotation_speed = rotation_ease * (self.config.max_speed * 0.2)
+        
+        print(ball_distance)
+        
         # Possession is latched: a ball held in the dribbler can sit outside the
         # bot mask and vanish, so it only clears when the ball is seen escaping
         # beyond the capture (orbit) radius.
-        if state.has_possession and (ball_still_visible and ball_distance > motors.config.orbit_standoff_radius):
+        if state.has_possession and (ball_vector and ball_distance > motors.config.orbit_standoff_radius):
             print('[auto] ball escaped capture radius -> possession cleared')
             state.has_possession = False
             state.has_orbited = False
 
         if state.has_possession: # Maintain posession
-            if goal_still_visible:
+            if goal_vector:
                 print("Driving to goal")
                 motors.drive_to_goal(goal_bearing, goal_distance)
             else:
                 print('Got ball, dunno where goal is')
-                motors.spin(motors.config.max_speed * 0.5)
+                # motors.spin(motors.config.max_speed * 0.5)
             return
 
-        if not ball_still_visible:
+        if not ball_vector:
             print("Lost the ball")
-            motors.spin(motors.config.max_speed * 0.3)
+            # motors.spin(motors.config.max_speed * 0.3)
             return
 
         if state.has_orbited and not state.has_possession:
-            if motors.spin_to_bearing(180, 3):
-                print("Moving closer")
-                motors.move(ball_bearing, motors.config.max_speed * 0.3)
+            # target_bearing = goal_bearing - ball_bearing
+            # if motors.spin_to_bearing(target_bearing, 3):
+            print("Moving closer")
+            
             if ball_distance <= vision.ball_dribble_radius:
                 print("Close enough to possess")
                 state.has_possession = True
@@ -241,18 +248,19 @@ class ArminApplication:
             motors.drive_to_the_ball(True, ball_bearing, ball_distance)
             state.has_orbited = False
         
-        if not goal_still_visible:
-            print('Dunno where goal is')
-            motors.spin(ball_bearing, motors.config.max_speed * 0.)
-            pass
+        # if not goal_still_visible:
+        #     print('Dunno where goal is')
+        #     motors.spin(ball_bearing, motors.config.max_speed * 0.)
+        #     pass
         
         elif ball_distance > vision.ball_dribble_radius or ball_bearing != goal_bearing - motors.config.goal_align_tolerance_degrees:
             # Line the ball up with the goal so driving at the ball pushes it goalward.
-            target_bearing = goal_bearing if goal_still_visible else 0.0
+            target_bearing = goal_bearing if goal_vector else 0.0
             if motors.orbit_to_behind_ball(target_bearing):
                 state.has_orbited = True
                 print('Arrived behind ball, now dribbling')
                 return
+            
         else:
             state.has_possession = True
             motors.spin_dribbler(True)

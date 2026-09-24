@@ -38,7 +38,7 @@ class MotorConfig:
     dribbler_calibration: Tuple[int, int] = (1437511680, 1245)
     dribbler_speed: int = 100_000_000
     
-    orbit_standoff_radius: int = 175
+    orbit_standoff_radius: int = 160
     orbit_arrived_angle_tolerance: float = 1.0
     orbit_arrived_radius_tolerance_ratio: float = 0.15
     orbit_full_speed_angle: float = 45.0
@@ -67,9 +67,9 @@ class VisionConfig:
     ball_lower: Tuple[int, int, int] = (0, 200, 77)
     ball_upper: Tuple[int, int, int] = (15, 255, 255)
     min_contour_area: int = 1
-    # dead_zone_radius: int = 132
+    dead_zone_radius: int = 132
     ball_dribble_radius: int = 145
-    orbit_radius: int = 210
+    orbit_radius: int = 180
     camera_rotation_offset: float = 0 #-90.0
     ball_lost_timeout: float = 0.5
     clahe_clip_limit: float = 2.5
@@ -87,7 +87,7 @@ class VisionConfig:
     
     goals : Tuple[str, str] = ('yellow_goal', 'blue_goal')
     
-    target_goal : str = goals[1]  # 'yellow_goal' or 'blue_goal' - the goal we attack
+    target_goal : str = goals[0]  # 'yellow_goal' or 'blue_goal' - the goal we attack
     
 
 @dataclass(frozen=True)

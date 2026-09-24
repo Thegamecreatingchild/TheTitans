@@ -58,7 +58,7 @@ class MotorController:
     def _create_motor(i2c, address, calibration):
         """Create and configure a single motor driver."""
         motor = PowerfulBLDCDriver(i2c, address)
-        motor.set_current_limit_foc(65536 * 2) # Set the current limit for the motor
+        motor.set_current_limit_foc(163840) # Set the current limit for the motor
         motor.set_id_pid_constants(1500, 200) # Set the PID constants for current control
         motor.set_speed_pid_constants(4e-2, 4e-4, 3e-2) # Set the PID constants for speed control
         motor.set_ELECANGLEOFFSET(calibration[0]) # Set the ELECANGLEOFFSET register to the calibration value
@@ -76,6 +76,22 @@ class MotorController:
             self.config.dribbler_speed if engaged else 0
         )
 
+    def get_rotation(self, goal_bearing=0):
+        rotation_ease = goal_bearing / 180
+        rotation_speed = rotation_ease * (self.config.max_speed * 0.2)
+ 
+    def rotate_and_move(self, degree: float, speed: int = None, rotation : int = 0, goal_bearing=0) -> None:
+        """Move the bot in a direction, commanding each wheel using math. Check the OneNote to see it."""
+        speed = self.config.max_speed if speed is None else speed
+        angle_rad = math.radians(degree + 90)
+        x = math.floor(math.cos(angle_rad) * speed)
+        y = math.floor(math.sin(angle_rad) * speed)
+        rotation = self.get_rotation(current_goal=0)
+        self.motors[0].set_speed(y + x + rotation)
+        self.motors[1].set_speed(y - x + rotation)
+        self.motors[2].set_speed(-(y + x) + rotation)
+        self.motors[3].set_speed(-(y - x) + rotation)
+    
     def move(self, degree: float, speed: int = None) -> None:
         """Move the bot in a direction, commanding each wheel using math. Check the OneNote to see it."""
         speed = self.config.max_speed if speed is None else speed
@@ -89,8 +105,7 @@ class MotorController:
 
     def spin(self, speed: int) -> None:
         """Self Explanatory. If you needed to hover over this you really are a dumbass."""
-        if type(speed) is float:
-            speed = int(speed)
+        speed = int(speed)
             
         for motor in self.motors:
             motor.set_speed(speed)

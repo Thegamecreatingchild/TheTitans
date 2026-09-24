@@ -92,6 +92,7 @@ class VisionService:
 
         height, width = frame.shape[:2]
         centre_x, centre_y = width // 2, height // 2
+        centre = (centre_x, centre_y)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
         h, s, v = cv2.split(hsv)
@@ -112,7 +113,11 @@ class VisionService:
         ball = self.find_ball(self._contours(ball_mask), self.config.min_contour_area)
         goal = self.find_goal(self._contours(goal_mask), self.config.goal_min_contour_area)
 
-        cv2.circle(frame, (centre_x, centre_y), 4, (0, 255, 0), -1)
+        cv2.circle(frame, centre, 4, (0, 255, 0), -1)
+        
+        cv2.circle(frame, centre, self.config.ball_dribble_radius, (255, 0, 0), 1)
+
+        cv2.circle(frame, centre, self.config.orbit_radius, (0, 0, 255), 1)
 
         ball_offset = self._annotate(frame, ball, centre_x, centre_y, (0, 0, 255), (255, 0, 0))
         goal_offset = self._annotate(frame, goal, centre_x, centre_y, (0, 255, 255), (0, 200, 255))
