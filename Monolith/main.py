@@ -12,7 +12,7 @@ import time
 import numpy as np
 from dataclasses import dataclass
 from typing import Iterable, Set, Tuple
-from steelbar_powerful_bldc_driver import PowerfulBLDCDriver
+from Monolith.steelbar_powerful_bldc_driver import PowerfulBLDCDriver
 
 from picamera2 import Picamera2, Preview
 import board
@@ -299,7 +299,7 @@ class Robot:
     
         self.goal_stop_distance : int = 100
         self.goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
-        self.target_goal : str = 'yellow_goal'  # 'yellow_goal' or 'blue_goal' - the goal we attack
+        self.target_goal : str = 'blue_goal'  # 'yellow_goal' or 'blue_goal' - the goal we attack
 
         self.bot_mask = cv2.imread('bot_mask.png', cv2.IMREAD_GRAYSCALE)
         self.bot_mask = cv2.rotate(self.bot_mask, cv2.ROTATE_90_COUNTERCLOCKWISE)   
