@@ -1,4 +1,4 @@
-# Armnin controller
+# Armin controller
 
 This folder contains the modular controller for the Pi robot. `Armin_main.py`
 is the entry point; it composes the typed configuration, live state, motor

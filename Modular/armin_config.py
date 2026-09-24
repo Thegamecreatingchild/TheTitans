@@ -32,10 +32,12 @@ class MotorConfig:
         (1150337792, 1247),
     )
     max_speed: int = 100_000_000
+    
     enable_dribbler: bool = False
     dribbler_address: int = 29
     dribbler_calibration: Tuple[int, int] = (1437511680, 1245)
     dribbler_speed: int = 100_000_000
+    
     orbit_standoff_radius: int = 175
     orbit_arrived_angle_tolerance: float = 1.0
     orbit_arrived_radius_tolerance_ratio: float = 0.15
@@ -43,10 +45,11 @@ class MotorConfig:
     orbit_max_tangential_speed_ratio: float = 0.5
     orbit_max_radial_speed_ratio: float = 0.3
     orbit_radial_gain: float = 400_000.0
+    
     drive_to_ball_speed_ratio: float = 1.0
     goal_search_speed_ratio: float = 0.2
     goal_rotation_speed_ratio: float = 0.3
-    goal_align_tolerance: float = 1.5
+    goal_align_tolerance_degrees: float = 1.5
 
     # The previous version wrapped each pair in MotorCalibration objects:
     # calibrations = (
@@ -76,12 +79,15 @@ class VisionConfig:
     
     yellow_goal_lower: Tuple[int, int, int] = (20, 235, 30)
     yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
-    blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
-    blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
+    blue_goal_lower: Tuple[int, int, int] = (106, 178, 18) # 95, 207, 60
+    blue_goal_upper: Tuple[int, int, int] = (124, 255, 54) # 105, 255, 100
 
     goal_stop_distance : int = 100
     goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
-    target_goal : str = 'yellow_goal'  # 'yellow_goal' or 'blue_goal' - the goal we attack
+    
+    goals : Tuple[str, str] = ('yellow_goal', 'blue_goal')
+    
+    target_goal : str = goals[1]  # 'yellow_goal' or 'blue_goal' - the goal we attack
     
 
 @dataclass(frozen=True)

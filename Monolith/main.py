@@ -12,7 +12,7 @@ import time
 import numpy as np
 from dataclasses import dataclass
 from typing import Iterable, Set, Tuple
-from Monolith.steelbar_powerful_bldc_driver import PowerfulBLDCDriver
+from steelbar_powerful_bldc_driver import PowerfulBLDCDriver
 
 from picamera2 import Picamera2, Preview
 import board
@@ -308,14 +308,14 @@ class Robot:
         """Configuring everything to do with the camera, including websockets connection and camera settings."""
         self.camera_size: Tuple[int, int] = (640, 480)
         self.camera_fps: int = 120
-        self.camera_exposure_time = 8333
+        self.camera_exposure_time = 66656
         self.frame_interval_microseconds: int = 1000000 // self.camera_fps  # 120 fps
         self.analogue_gain: float = 8.677966117858887
         self.colour_gains: Tuple[float, float] = (2.4364535808563232, 1.9698092937469482)
     
     def manual_controls_config(self):
         """Configuring everything to do with manual controls, including timeouts and switch pins."""
-        self.control_mode: str = "auto"  # 'auto' or 'manual'
+        self.control_mode: str = "manual"  # 'auto' or 'manual'
         
         self.manual_keys: dict[str, int] = {'w': 0, 'd': 90, 's': 180, 'a': 270} # Bearing mappings to each key
         self.spin_keys: dict[str, int] = {'q': 1, 'e': -1}
@@ -453,6 +453,8 @@ class Robot:
             -max_radial_speed,
             min(max_radial_speed, proximity_error * self.orbit_radial_gain),
         )
+        
+        print(f"Prox error: {proximity_error}, Prox speed: {proximity_speed}")
         
         # Vector addition to get final speed and direction.
         # Vector t for tangent, vector p for proximity, vector v for final vector.

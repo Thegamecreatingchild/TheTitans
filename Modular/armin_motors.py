@@ -257,8 +257,6 @@ class MotorController:
         final_bearing = math.degrees(math.atan2(vx, -vy)) % 360
         final_speed = int(min(math.hypot(vx, vy), self.config.max_speed))
         
-        print(final_bearing, final_speed)
-        
         self.move(final_bearing, final_speed)
         return False
     
@@ -269,9 +267,9 @@ class MotorController:
         ball against the dribbler rather than dragging it away.
         """
         error = ((goal_angle + 180) % 360) - 180  # signed; + means goal is clockwise
-        if abs(error) > self.config.goal_align_tolerance:
+        if abs(error) > self.config.goal_align_tolerance_degrees:
             self._debug(f"[auto] goal at {goal_angle:.1f}deg (err {error:.1f}) -> rotating to face it")
-            if not self.spin_to_bearing(goal_angle, self.config.goal_align_tolerance): return
+            if not self.spin_to_bearing(goal_angle, self.config.goal_align_tolerance_degrees): return
         else:
             self._debug(f"[auto] goal aligned, distance={distance:.1f}px -> driving forward")
             self.move(0, int(self.config.max_speed))
