@@ -129,6 +129,7 @@ class WebSocketController:
             'v_low': self.robot.ball_lower[2],
             'v_high': self.robot.ball_upper[2],
             'min_contour_area': self.robot.ball_min_contour_area,
+            'ball_dribble_radius': self.robot.dribble_trigger_radius,
             'debug_mask': self.robot.debug_mask,
         }
 
@@ -171,6 +172,8 @@ class WebSocketController:
         self.robot.ball_upper = tuple(ball_upper)
         if 'min_contour_area' in data:
             self.robot.ball_min_contour_area = int(data['min_contour_area'])
+        if 'ball_dribble_radius' in data:
+            self.robot.dribble_trigger_radius = int(data['ball_dribble_radius'])
         if 'debug_mask' in data:
             self.robot.debug_mask = bool(data['debug_mask'])
 
@@ -254,7 +257,15 @@ class Robot:
         # Movement stuff
         self.orbit_standoff_radius : int = 170
         self.orbit_arrived_angle_tolerance : int = 10
+        self.orbit_arrived_radius_tolerance_ratio: float = 0.15
+        self.orbit_full_speed_angle: float = 45.0
+        self.orbit_max_tangential_speed_ratio: float = 0.5
+        self.orbit_max_radial_speed_ratio: float = 0.3
         self.orbit_radial_gain : int = 400_000 
+        self.drive_to_ball_speed_ratio: float = 1.0
+        self.goal_search_speed_ratio: float = 0.2
+        self.goal_rotation_speed_ratio: float = 0.3
+        self.goal_align_tolerance: float = 15.0
         # ! The gain for the radial component of orbiting. Requires tuning. 
         # Higher values make the robot orbit closer to the target.
         # Lower values make the robot orbit further from the target.
@@ -268,16 +279,19 @@ class Robot:
         
         self.dribble_trigger_radius: int = 140
         self.orbit_trigger_radius: int = 200
-        self.camera_rotation_offset: float = 90.0
+        self.camera_rotation_offset: float = 0.0
         
         self.ball_offset : Tuple[int] = (0, 0)
         self.goal_offset: Tuple[int] | None = None
         self.has_possession: bool = False
+        self.has_orbited: bool = False
+        self.ball_last_seen: float = 0.0
+        self.goal_last_seen: float = 0.0
         self.ball_lost_timeout: float = 0.3
         
         self.debug_mask : bool = False
         
-        self.yellow_goal_lower: Tuple[int] = (20, 235, 100)
+        self.yellow_goal_lower: Tuple[int] = (20, 235, 22)
         self.yellow_goal_upper: Tuple[int] = (40, 255, 255)
         
         self.blue_goal_lower: Tuple[int] = (95, 207, 60)
@@ -348,12 +362,54 @@ class Robot:
     def stop(self) -> None:
         """Stop the bot by setting all motors to 0 speed."""
         for motor in self.motors: motor.set_speed(0)
-        if self.dribbler_enabled:
-            self.dribbler.set_speed(0)
+        self.spin_dribbler(False)
+
+    def stop_wheels(self) -> None:
+        """Stop the drive wheels while preserving the dribbler state."""
+        for motor in self.motors:
+            motor.set_speed(0)
+
+    def spin_dribbler(self, engaged: bool) -> None:
+        """Run the dribbler when it is installed and enabled."""
+        if self.dribbler_enabled and self.dribbler is not None:
+            self.dribbler.set_speed(self.dribbler_max_speed if engaged else 0)
         
     def spin(self, speed: int) -> None:
         """Spin the bot in place by setting all motors to the same speed."""
         for motor in self.motors: motor.set_speed(speed)
+
+    def drive_to_the_ball(self, ball_visible: bool, ball_angle: float, distance: float) -> None:
+        """Drive toward a fresh ball observation or stop when it is stale."""
+        if self.has_possession and ball_visible:
+            self.stop_wheels()
+            return
+        if not ball_visible:
+            self.stop()
+            return
+        self.move(ball_angle, int(self.max_speed * self.drive_to_ball_speed_ratio))
+
+    def spin_to_bearing(self, target_bearing: float, tolerance: float = None) -> bool:
+        """Rotate toward a bearing using the current camera-frame heading."""
+        tolerance = self.orbit_arrived_angle_tolerance if tolerance is None else tolerance
+        current_bearing = 0.0
+        angular_error = ((current_bearing - target_bearing + 180) % 360) - 180
+        if abs(angular_error) <= tolerance:
+            self.stop_wheels()
+            return True
+        ease = min(abs(angular_error) / self.orbit_full_speed_angle, 1.0)
+        speed = int(math.copysign(self.max_speed * self.goal_rotation_speed_ratio * ease, angular_error))
+        self.spin(speed)
+        return False
+
+    def drive_to_goal(self, goal_angle: float, distance: float) -> None:
+        """Align with the goal, then drive forward while running the dribbler."""
+        error = ((goal_angle + 180) % 360) - 180
+        if abs(error) > self.goal_align_tolerance:
+            if not self.spin_to_bearing(goal_angle, self.goal_align_tolerance):
+                return
+        else:
+            self.move(0, self.max_speed)
+        self.spin_dribbler(True)
     
     def orbit_to_dribbling_range(self, target_bearing: float = 0.0) -> bool:
         """Orbit around the ball to the specified bearing."""
@@ -373,23 +429,30 @@ class Robot:
         # This turns the [0, 360) into [0, 180). Easier to choose which way to go.
         # As it gets close to 0, the bot is closer to being at the target bearing.
         
-        if (abs(normalized_ball_bearing) <= self.orbit_arrived_angle_tolerance):
-            if (abs(ball_distance - self.orbit_standoff_radius) <= self.orbit_standoff_radius * 0.15):
-                self.stop() # ! Please change to make the bot move to goal next.
-                return True # The bot has arrived at the ball.
-            self.move(offset, self.max_speed * 0.5) # makes sure it is within 
+        if abs(normalized_ball_bearing) <= self.orbit_arrived_angle_tolerance:
+            if abs(ball_distance - self.orbit_standoff_radius) <= (
+                self.orbit_standoff_radius * self.orbit_arrived_radius_tolerance_ratio
+            ):
+                self.stop_wheels()
+                return True
+            radial_bearing = 0.0 if ball_distance < self.orbit_standoff_radius else 180.0
+            self.move(radial_bearing, int(self.max_speed * 0.5))
             return False
         
         # Follows tangent to the ball.
         tangent_dir = ball_bearing + (90 if normalized_ball_bearing > 0 else -90)
         # Lower when normalized ball bearing is lower, higher when it's higher.
-        ease = min(abs(normalized_ball_bearing) / 45, 1)
-        tangent_speed = self.max_speed * ease
+        ease = min(abs(normalized_ball_bearing) / self.orbit_full_speed_angle, 1)
+        tangent_speed = self.max_speed * self.orbit_max_tangential_speed_ratio * ease
         
         # If the bot is too close to the ball.
         proximity_error = ball_distance - self.orbit_standoff_radius
         # How big the resulting vector should be that allows it to move away from the ball.
-        proximity_speed = max(-self.max_speed * 0.5, min(self.max_speed * 0.5, proximity_error * self.orbit_radial_gain))
+        max_radial_speed = self.max_speed * self.orbit_max_radial_speed_ratio
+        proximity_speed = max(
+            -max_radial_speed,
+            min(max_radial_speed, proximity_error * self.orbit_radial_gain),
+        )
         
         # Vector addition to get final speed and direction.
         # Vector t for tangent, vector p for proximity, vector v for final vector.
@@ -503,7 +566,7 @@ class Robot:
 
     def process_frame(self, picam):
         frame = picam.capture_array()
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        # Picamera2's RGB888 NumPy output is BGR-ordered for OpenCV consumers.
         frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE) # Turns so camera is upright.
 
         height, width = frame.shape[:2] # 
@@ -586,8 +649,13 @@ class Robot:
         """Capture detections and broadcast each annotated frame to browsers."""
         while True:
             frame, ball_offset, goal_offset = self.process_frame(camera)
+            now = time.time()
             self.ball_offset = ball_offset
+            if ball_offset is not None:
+                self.ball_last_seen = now
             self.goal_offset = goal_offset
+            if goal_offset is not None:
+                self.goal_last_seen = now
 
             success, encoded_frame = cv2.imencode('.jpg', frame)
             if success:
@@ -630,26 +698,77 @@ class Robot:
 
         self.stop()
 
-    def apply_autonomous_control(self) -> None:
-        """Use the latest ball and goal observations to choose motor output."""
-        if self.ball_offset is None:
-            self.stop()
-            return
-
-        ball_x, ball_y = self.ball_offset
-        ball_distance = math.hypot(ball_x, ball_y)
-        ball_bearing = (
-            math.degrees(math.atan2(ball_x, -ball_y))
+    def _bearing_from_offset(self, offset: Tuple[int, int]) -> float:
+        """Convert an image offset into the robot-frame bearing convention."""
+        offset_x, offset_y = offset
+        return (
+            math.degrees(math.atan2(offset_x, -offset_y))
             + self.camera_rotation_offset
         ) % 360
 
+    def apply_autonomous_control(self) -> None:
+        """Turn fresh ball/goal observations into one autonomous drive decision."""
+        now = time.time()
+        ball_visible = (
+            self.ball_offset is not None
+            and now - self.ball_last_seen <= self.ball_lost_timeout
+        )
+        goal_visible = (
+            self.goal_offset is not None
+            and now - self.goal_last_seen <= self.ball_lost_timeout
+        )
+
+        if ball_visible:
+            ball_distance = math.hypot(*self.ball_offset)
+            ball_bearing = self._bearing_from_offset(self.ball_offset)
+        if goal_visible:
+            goal_distance = math.hypot(*self.goal_offset)
+            goal_bearing = self._bearing_from_offset(self.goal_offset)
+
+        if self.has_possession and ball_visible and ball_distance > self.orbit_standoff_radius:
+            print('[auto] ball escaped capture radius -> possession cleared')
+            self.has_possession = False
+            self.has_orbited = False
+
+        if self.has_possession:
+            if goal_visible:
+                self.drive_to_goal(goal_bearing, goal_distance)
+            else:
+                print('[auto] possession but goal not visible -> searching for goal')
+                self.spin(int(self.max_speed * self.goal_search_speed_ratio))
+            return
+
+        if not ball_visible:
+            self.spin(int(self.max_speed * 0.3))
+            return
+
+        if self.has_orbited and not self.has_possession:
+            self.spin_to_bearing(3, 1.2)
+            self.move(ball_bearing, int(self.max_speed * 0.3))
+            if ball_distance <= self.dribble_trigger_radius:
+                self.has_possession = True
+                self.spin_dribbler(True)
+            return
+
         if ball_distance > self.orbit_trigger_radius:
-            self.move(ball_bearing)
-        elif ball_distance > self.dribble_trigger_radius:
-            self.orbit_to_dribbling_range()
-        else:
-            self.has_possession = True
-            self.stop()
+            self.drive_to_the_ball(True, ball_bearing, ball_distance)
+            self.has_orbited = False
+            return
+
+        goal_misaligned = (
+            goal_visible
+            and abs(((ball_bearing - goal_bearing + 180) % 360) - 180)
+            > self.goal_align_tolerance
+        )
+        if ball_distance > self.dribble_trigger_radius or goal_misaligned:
+            target_bearing = goal_bearing if goal_visible else 0.0
+            if self.orbit_to_dribbling_range(target_bearing):
+                self.has_orbited = True
+                print('Arrived behind ball, now dribbling')
+            return
+
+        self.has_possession = True
+        self.spin_dribbler(True)
 
 def main() -> None:
     robot = Robot()

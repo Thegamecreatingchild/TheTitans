@@ -219,7 +219,7 @@ class ArminApplication:
                 motors.drive_to_goal(goal_bearing, goal_distance)
             else:
                 print('[auto] possession but goal not visible -> search_for_goal()')
-                motors.spin(motors.config.goal_search_speed_ratio)
+                motors.spin(motors.config.max_speed * 0.5)
             return
 
         if not ball_still_visible:
