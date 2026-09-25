@@ -87,6 +87,18 @@ class MotorController:
         self.motors[2].set_speed(-(y + x))
         self.motors[3].set_speed(-(y - x))
 
+    def rotate_and_move(self, degree: float, speed: float = None, rotation: float=0) -> None:
+        """Move the bot in a direction, commanding each wheel using math. Check the OneNote to see it."""
+        speed = self.config.max_speed if speed is None else speed
+        angle_rad = math.radians(degree + 90)
+        rotation = int(rotation)
+        x = math.floor(math.cos(angle_rad) * speed)
+        y = math.floor(math.sin(angle_rad) * speed)
+        self.motors[0].set_speed(y + x + rotation)
+        self.motors[1].set_speed(y - x + rotation)
+        self.motors[2].set_speed(-(y + x) + rotation)
+        self.motors[3].set_speed(-(y - x) + rotation)
+
     def spin(self, speed: int) -> None:
         """Self Explanatory. If you needed to hover over this you really are a dumbass."""
         speed = int(speed)
@@ -265,6 +277,7 @@ class MotorController:
         Facing first (instead of translating sideways toward the goal) keeps the
         ball against the dribbler rather than dragging it away.
         """
+        
         error = ((goal_angle + 180) % 360) - 180  # signed; + means goal is clockwise
         if abs(error) > self.config.goal_align_tolerance_degrees:
             self._debug(f"[auto] goal at {goal_angle:.1f}deg (err {error:.1f}) -> rotating to face it")

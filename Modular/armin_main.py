@@ -207,6 +207,14 @@ class ArminApplication:
                 vision.camera_rotation_offset,
             )
         
+        normalized_goal_bearing = ((goal_bearing + 180) % 360) - 180
+        rotation_ease = normalized_goal_bearing / 180
+        rotation_speed = rotation_ease * (motors.config.max_speed * 1)
+        
+        if True:
+            motors.rotate_and_move(ball_bearing, rotation_speed, normalized_goal_bearing)
+            return
+
         # Possession is latched: a ball held in the dribbler can sit outside the
         # bot mask and vanish, so it only clears when the ball is seen escaping
         # beyond the capture (orbit) radius.
@@ -218,6 +226,9 @@ class ArminApplication:
         if state.has_possession: # Maintain posession
             if goal_vector:
                 print("Driving to goal")
+                
+                if goal_distance < vision.goal_stop_distance: return
+                
                 motors.drive_to_goal(goal_bearing, goal_distance)
             else:
                 print('Got ball, dunno where goal is')

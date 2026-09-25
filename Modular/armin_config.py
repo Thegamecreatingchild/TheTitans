@@ -38,10 +38,10 @@ class MotorConfig:
     dribbler_calibration: Tuple[int, int] = (1437511680, 1245)
     dribbler_speed: int = 100_000_000
     
-    orbit_standoff_radius: int = 170
+    orbit_standoff_radius: int = 150
     orbit_arrived_angle_tolerance: float = 1.0
     orbit_arrived_radius_tolerance_ratio: float = 0.15
-    orbit_full_speed_angle: float = 45.0
+    orbit_full_speed_angle: float = 30.0
     orbit_max_tangential_speed_ratio: float = 0.5
     orbit_max_radial_speed_ratio: float = 0.3
     orbit_radial_gain: float = 400_000.0
@@ -64,12 +64,12 @@ class VisionConfig:
     """HSV, geometry, camera-angle, timeout, and CLAHE tuning values."""
 
     # HSV bounds are kept together so calibration is easy to read and edit.
-    ball_lower: Tuple[int, int, int] = (0, 200, 77)
+    ball_lower: Tuple[int, int, int] = (2, 200, 77)
     ball_upper: Tuple[int, int, int] = (15, 255, 255)
     min_contour_area: int = 1
     dead_zone_radius: int = 132
     ball_dribble_radius: int = 145
-    orbit_radius: int = 205
+    orbit_radius: int = 200
     camera_rotation_offset: float = 0 #-90.0
     ball_lost_timeout: float = 0.5
     clahe_clip_limit: float = 2.5
@@ -82,7 +82,7 @@ class VisionConfig:
     blue_goal_lower: Tuple[int, int, int] = (106, 178, 18) # 95, 207, 60
     blue_goal_upper: Tuple[int, int, int] = (124, 255, 54) # 105, 255, 100
 
-    goal_stop_distance : int = 100
+    goal_stop_distance : int = 180
     goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
     
     goals : Tuple[str, str] = ('yellow_goal', 'blue_goal')
