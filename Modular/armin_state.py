@@ -30,6 +30,20 @@ class ControlState:
     print_vector_requested: bool = False
     debug_motor: bool = False
 
+    # Analog gamepad input, sent as a single (x, y, rot) sample per message
+    # rather than a held-key set. joystick_active latches on the first
+    # 'joystick' message so the motor loop can tell "no gamepad connected"
+    # (never active) apart from "gamepad connected, sticks centred" (active,
+    # zeroed values) — both should stop the bot, but only the first should
+    # fall back to the WASD key state.
+    joystick_active: bool = False
+    joystick_x: float = 0.0
+    joystick_y: float = 0.0
+    joystick_rot: float = 0.0
+    joystick_dribble: bool = False
+    joystick_orbit: bool = False
+    joystick_last_seen: float = 0.0
+
 
 @dataclass
 class GoalState:

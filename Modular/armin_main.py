@@ -162,15 +162,31 @@ class ArminApplication:
             now = time.time()
             control = self.robot_state.control
             if control.mode == 'manual':
-                stale = (
-                    not control.active_keys
-                    or now - control.keys_last_seen > self.robot_config.control.key_lost_timeout
+                timeout = self.robot_config.control.key_lost_timeout
+                joystick_fresh = (
+                    control.joystick_active
+                    and now - control.joystick_last_seen <= timeout
                 )
-                if stale: # Stale if never seen this frame or the last detection is too old.
-                    self.robot_motors.debug('[manual] no keys held or stale -> stop()')
-                    self.robot_motors.stop()
+                if joystick_fresh:
+                    # A connected gamepad takes priority over the WASD keys
+                    # for as long as it keeps sending samples.
+                    self.robot_motors.apply_joystick(
+                        control.joystick_x,
+                        control.joystick_y,
+                        control.joystick_rot,
+                        control.joystick_dribble,
+                        control.joystick_orbit,
+                    )
                 else:
-                    self.robot_motors.apply_manual_keys(control.active_keys)
+                    stale = (
+                        not control.active_keys
+                        or now - control.keys_last_seen > timeout
+                    )
+                    if stale: # Stale if never seen this frame or the last detection is too old.
+                        self.robot_motors.debug('[manual] no keys held or stale -> stop()')
+                        self.robot_motors.stop()
+                    else:
+                        self.robot_motors.apply_manual_keys(control.active_keys)
             else:
                 self._apply_auto(now)
             await asyncio.sleep(self.robot_config.control.motor_loop_delay)

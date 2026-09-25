@@ -64,7 +64,7 @@ class VisionConfig:
     """HSV, geometry, camera-angle, timeout, and CLAHE tuning values."""
 
     # HSV bounds are kept together so calibration is easy to read and edit.
-    ball_lower: Tuple[int, int, int] = (0, 200, 77)
+    ball_lower: Tuple[int, int, int] = (2, 200, 77)
     ball_upper: Tuple[int, int, int] = (15, 255, 255)
     min_contour_area: int = 1
     dead_zone_radius: int = 132
@@ -74,7 +74,7 @@ class VisionConfig:
     ball_lost_timeout: float = 0.5
     clahe_clip_limit: float = 2.5
     clahe_tile_grid: Tuple[int, int] = (8, 8)
-    debug_mask : bool = False
+    debug_mask : bool = True
     valid_mask_path: str = 'bot_mask.png'
     
     yellow_goal_lower: Tuple[int, int, int] = (15, 235, 60)
@@ -133,6 +133,12 @@ class ControlConfig:
     miscellaneous_keys: dict[str, str] = field(
         default_factory=lambda: {'k': 'dribble', 'x': 'orbit'}
     )
+
+    # Analog gamepad input (see MotorController.apply_joystick). Deadzone is
+    # applied to both the stick magnitude and the rotation axis; ratios reuse
+    # the same speed scale as the WASD/QE keys so behaviour stays consistent
+    # between input methods.
+    joystick_deadzone: float = 0.15
 
     @property
     def dribble_key(self) -> str:

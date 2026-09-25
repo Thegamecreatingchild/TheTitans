@@ -87,20 +87,17 @@ class MotorController:
         self.motors[2].set_speed(-(y + x))
         self.motors[3].set_speed(-(y - x))
 
-    def rotate_and_move(self, ball_degree: float, speed: float = None, rotation_speed: int=0) -> None:
+    def rotate_and_move(self, degree: float, speed: float = None, rotation: float=0) -> None:
         """Move the bot in a direction, commanding each wheel using math. Check the OneNote to see it."""
-        # print(speed)
         speed = self.config.max_speed if speed is None else speed
-        angle_rad = math.radians(ball_degree + 90)
+        angle_rad = math.radians(degree + 90)
+        rotation = int(rotation)
         x = math.floor(math.cos(angle_rad) * speed)
         y = math.floor(math.sin(angle_rad) * speed)
-        
-        # print(x, y)
-        
-        self.motors[0].set_speed(y + x + -rotation_speed)
-        self.motors[1].set_speed(y - x + -rotation_speed)
-        self.motors[2].set_speed(-(y + x) + -rotation_speed)
-        self.motors[3].set_speed(-(y - x) + -rotation_speed)
+        self.motors[0].set_speed(y + x + rotation)
+        self.motors[1].set_speed(y - x + rotation)
+        self.motors[2].set_speed(-(y + x) + rotation)
+        self.motors[3].set_speed(-(y - x) + rotation)
 
     def spin(self, speed: int) -> None:
         """Self Explanatory. If you needed to hover over this you really are a dumbass."""
@@ -189,6 +186,60 @@ class MotorController:
 
         self._debug(f"[manual] held={sorted(keys)} -> no recognised key held -> stop()")
         self.stop()
+
+    def apply_joystick(
+        self,
+        x: float,
+        y: float,
+        rot: float,
+        dribble: bool = False,
+        orbit: bool = False,
+    ) -> None:
+        """Continuous analog control from a connected gamepad.
+
+        Mirrors ``apply_manual_keys``'s priority (rotate, then orbit, then
+        translate) but scales speed from the stick magnitude instead of
+        picking a fixed ratio. ``x``/``y`` are the left-stick axes (``y``
+        positive = stick pulled down, matching the image-offset convention
+        used elsewhere) and ``rot`` is the rotation axis, all in [-1, 1].
+        """
+        deadzone = self.control_config.joystick_deadzone
+
+        if abs(rot) > deadzone:
+            speed = int(
+                rot
+                * self.config.max_speed
+                * self.control_config.manual_rotation_speed_ratio
+            )
+            self._debug(f"[joystick] rot={rot:.2f} -> spin(speed={speed})")
+            self.spin(speed)
+            self.spin_dribbler(self.config.enable_dribbler and dribble)
+            return
+
+        if orbit:
+            arrived = self.orbit_to_behind_ball()
+            self._debug(f"[joystick] orbit -> arrived={arrived}")
+            return
+
+        magnitude = math.hypot(x, y)
+        if magnitude <= deadzone:
+            self._debug(f"[joystick] x={x:.2f} y={y:.2f} within deadzone -> stop()")
+            self.stop_wheels()
+            self.spin_dribbler(self.config.enable_dribbler and dribble)
+            return
+
+        magnitude = min(magnitude, 1.0)
+        degree = math.degrees(math.atan2(x, -y)) % 360
+        speed = int(
+            magnitude
+            * self.config.max_speed
+            * self.control_config.manual_translation_speed_ratio
+        )
+        self._debug(
+            f"[joystick] x={x:.2f} y={y:.2f} -> move(degree={degree:.1f}, speed={speed})"
+        )
+        self.move(degree, speed)
+        self.spin_dribbler(self.config.enable_dribbler and dribble)
 
     def drive_to_the_ball(self, ball_visible: bool, ball_angle: float, distance: float) -> None:
         """Search when the ball is absent; otherwise drive toward its bearing."""
