@@ -222,12 +222,25 @@ class ArminApplication:
                 goal.offset,
                 vision.camera_rotation_offset,
             )
-        
-        # normalized_goal_bearing = math.floor(((goal_bearing + 180) % 360) - 180)
-        # rotation_ease = normalized_goal_bearing / 180
-        # rotation_speed = math.floor(rotation_ease * (motors.config.max_speed * 0.5))
+            vision.last_goal_vector = goal_vector
         
         
+        
+        if not goal_vector:
+            goal_vector = vision.last_goal_vector
+            goal_bearing = self._bearing_from_offset(goal_vector, vision.camera_rotation_offset)
+        
+        if not goal_distance:
+            motors.move()
+        
+        # Normalizes goal bearing before calculating easing
+        rotation_ease = (((goal_bearing + 180) % 360) - 180) / 180
+        rotation_speed = rotation_ease * (motors.config.max_speed * 2)
+
+        print(rotation_ease, rotation_speed)
+        
+        rotation_ease = math.floor(rotation_ease)
+        rotation_speed = math.floor(rotation_speed)
         
         # if True:
         #     print(ball_bearing, rotation_ease, rotation_speed)
@@ -237,7 +250,7 @@ class ArminApplication:
         # Possession is latched: a ball held in the dribbler can sit outside the
         # bot mask and vanish, so it only clears when the ball is seen escaping
         # beyond the capture (orbit) radius.
-        if state.has_possession and (ball_vector and ball_distance > vision.orbit_radius):
+        if state.has_possession and (ball_vector and ball_distance > vision.ball_dribble_radius):
             print('[auto] ball escaped capture radius -> possession cleared')
             state.has_possession = False
             state.has_orbited = False
@@ -258,18 +271,20 @@ class ArminApplication:
             print("Lost the ball")
             # motors.spin(motors.config.max_speed * 0.3)
             return
-
+        
         if state.has_orbited and not state.has_possession:
             # target_bearing = goal_bearing - ball_bearing
             # if motors.spin_to_bearing(target_bearing, 3):
             print("Moving closer")
-            motors.move(ball_bearing, motors.config.max_speed * 0.5)
+            motors.rotate_and_move(ball_bearing, motors.config.max_speed, rotation_speed)
             if ball_distance <= vision.ball_dribble_radius:
                 print("Close enough to possess")
                 state.has_possession = True
         
         elif ball_distance > vision.orbit_radius:
-            motors.drive_to_the_ball(True, ball_bearing, ball_distance)
+            print("Rotating while moving")
+            motors.rotate_and_move(ball_bearing, motors.config.max_speed, rotation_speed)
+            # motors.drive_to_the_ball(True, ball_bearing, ball_distance, rotation_speed)
             state.has_orbited = False
         
         # if not goal_still_visible:

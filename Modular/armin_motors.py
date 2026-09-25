@@ -87,17 +87,17 @@ class MotorController:
         self.motors[2].set_speed(-(y + x))
         self.motors[3].set_speed(-(y - x))
 
-    def rotate_and_move(self, degree: float, speed: float = None, rotation: float=0) -> None:
+    def rotate_and_move(self, ball_angle: float, speed: float = None, eased_rotation: float=0) -> None:
         """Move the bot in a direction, commanding each wheel using math. Check the OneNote to see it."""
         speed = self.config.max_speed if speed is None else speed
-        angle_rad = math.radians(degree + 90)
-        rotation = int(rotation)
+        angle_rad = math.radians(ball_angle + 90)
+        eased_rotation = int(eased_rotation)
         x = math.floor(math.cos(angle_rad) * speed)
         y = math.floor(math.sin(angle_rad) * speed)
-        self.motors[0].set_speed(y + x + rotation)
-        self.motors[1].set_speed(y - x + rotation)
-        self.motors[2].set_speed(-(y + x) + rotation)
-        self.motors[3].set_speed(-(y - x) + rotation)
+        self.motors[0].set_speed(y + x - eased_rotation)
+        self.motors[1].set_speed(y - x - eased_rotation)
+        self.motors[2].set_speed(-(y + x) -eased_rotation)
+        self.motors[3].set_speed(-(y - x) -eased_rotation)
 
     def spin(self, speed: int) -> None:
         """Self Explanatory. If you needed to hover over this you really are a dumbass."""
@@ -241,25 +241,24 @@ class MotorController:
         self.move(degree, speed)
         self.spin_dribbler(self.config.enable_dribbler and dribble)
 
-    def drive_to_the_ball(self, ball_visible: bool, ball_angle: float, distance: float) -> None:
+    def drive_to_the_ball(self, ball_visible: bool, ball_angle: float, distance: float, eased_rotation : float) -> None:
         """Search when the ball is absent; otherwise drive toward its bearing."""
-        self._debug("Driving to ball")
+        self._debug("Driving to ball")        
         if self.robot_state.has_possession and ball_visible:
             self._debug("[auto] has possession and ball visible -> stop()")
             self.stop_wheels()
             return
         
         if not ball_visible:
-            self._debug("[auto] ball not visible (or stale) -> stop()")
             self.stop()
             return
-
+        
         speed = int(self.config.max_speed * self.config.drive_to_ball_speed_ratio)
         self._debug(
             f"[auto] ball at angle={ball_angle:.1f}deg, distance={distance:.1f}px "
             f"-> move(degree={ball_angle:.1f}, speed={speed})"
         )
-        self.move(ball_angle, speed)
+        self.rotate_and_move(ball_angle, speed, eased_rotation)
 
     def orbit_to_behind_ball(self, target_bearing: float = 0.0) -> bool:
         """Sweep around the ball with pure translation (no spin) until it lies on

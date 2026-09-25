@@ -64,7 +64,7 @@ class VisionConfig:
     """HSV, geometry, camera-angle, timeout, and CLAHE tuning values."""
 
     # HSV bounds are kept together so calibration is easy to read and edit.
-    ball_lower: Tuple[int, int, int] = (2, 200, 77)
+    ball_lower: Tuple[int, int, int] = (0, 180, 77)
     ball_upper: Tuple[int, int, int] = (15, 255, 255)
     min_contour_area: int = 1
     dead_zone_radius: int = 132
@@ -79,15 +79,18 @@ class VisionConfig:
     
     yellow_goal_lower: Tuple[int, int, int] = (15, 235, 60)
     yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
-    blue_goal_lower: Tuple[int, int, int] = (106, 178, 18) # 95, 207, 60
-    blue_goal_upper: Tuple[int, int, int] = (124, 255, 54) # 105, 255, 100
+    blue_goal_lower: Tuple[int, int, int] = (95, 207, 60) # 95, 207, 60
+    blue_goal_upper: Tuple[int, int, int] = (105, 255, 100) # 105, 255, 100
 
     goal_stop_distance : int = 180
     goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
     
+    last_goal_vector : Tuple[float, float] = None
+    
     goals : Tuple[str, str] = ('yellow_goal', 'blue_goal')
     
-    target_goal : str = goals[0]  # 'yellow_goal' or 'blue_goal' - the goal we attack
+    target_goal : str = goals[1]  # 'yellow_goal' or 'blue_goal' - the goal we attack
+    opposite_goal : str = goals[1] if target_goal == goals[0] else goals[0]
     
 
 @dataclass(frozen=True)
