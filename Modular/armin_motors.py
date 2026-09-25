@@ -75,22 +75,6 @@ class MotorController:
         self.dribbler_motor.set_speed(
             self.config.dribbler_speed if engaged else 0
         )
-
-    def get_rotation(self, goal_bearing=0):
-        rotation_ease = goal_bearing / 180
-        rotation_speed = rotation_ease * (self.config.max_speed * 0.2)
- 
-    def rotate_and_move(self, degree: float, speed: int = None, rotation : int = 0, goal_bearing=0) -> None:
-        """Move the bot in a direction, commanding each wheel using math. Check the OneNote to see it."""
-        speed = self.config.max_speed if speed is None else speed
-        angle_rad = math.radians(degree + 90)
-        x = math.floor(math.cos(angle_rad) * speed)
-        y = math.floor(math.sin(angle_rad) * speed)
-        rotation = self.get_rotation(current_goal=0)
-        self.motors[0].set_speed(y + x + rotation)
-        self.motors[1].set_speed(y - x + rotation)
-        self.motors[2].set_speed(-(y + x) + rotation)
-        self.motors[3].set_speed(-(y - x) + rotation)
     
     def move(self, degree: float, speed: int = None) -> None:
         """Move the bot in a direction, commanding each wheel using math. Check the OneNote to see it."""

@@ -38,7 +38,7 @@ class MotorConfig:
     dribbler_calibration: Tuple[int, int] = (1437511680, 1245)
     dribbler_speed: int = 100_000_000
     
-    orbit_standoff_radius: int = 160
+    orbit_standoff_radius: int = 170
     orbit_arrived_angle_tolerance: float = 1.0
     orbit_arrived_radius_tolerance_ratio: float = 0.15
     orbit_full_speed_angle: float = 45.0
@@ -49,7 +49,7 @@ class MotorConfig:
     drive_to_ball_speed_ratio: float = 1.0
     goal_search_speed_ratio: float = 0.2
     goal_rotation_speed_ratio: float = 0.3
-    goal_align_tolerance_degrees: float = 1.5
+    goal_align_tolerance_degrees: float = 5
 
     # The previous version wrapped each pair in MotorCalibration objects:
     # calibrations = (
@@ -69,7 +69,7 @@ class VisionConfig:
     min_contour_area: int = 1
     dead_zone_radius: int = 132
     ball_dribble_radius: int = 145
-    orbit_radius: int = 180
+    orbit_radius: int = 205
     camera_rotation_offset: float = 0 #-90.0
     ball_lost_timeout: float = 0.5
     clahe_clip_limit: float = 2.5
@@ -77,7 +77,7 @@ class VisionConfig:
     debug_mask : bool = True
     valid_mask_path: str = 'bot_mask.png'
     
-    yellow_goal_lower: Tuple[int, int, int] = (20, 235, 30)
+    yellow_goal_lower: Tuple[int, int, int] = (15, 235, 60)
     yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
     blue_goal_lower: Tuple[int, int, int] = (106, 178, 18) # 95, 207, 60
     blue_goal_upper: Tuple[int, int, int] = (124, 255, 54) # 105, 255, 100

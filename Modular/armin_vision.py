@@ -126,7 +126,7 @@ class VisionService:
             ball_layer = frame.copy()
             ball_layer[ball_mask > 0] = (0, 255, 0)
             goal_layer = frame.copy()
-            goal_layer[goal_mask > 0] = (255, 0, 255)
+            goal_layer[goal_mask > 0] = (255, 0, 0)
             frame = cv2.addWeighted(frame, 0.7, ball_layer, 0.3, 0)
             frame = cv2.addWeighted(frame, 0.7, goal_layer, 0.3, 0)
 
