@@ -207,18 +207,21 @@ class ArminApplication:
                 vision.camera_rotation_offset,
             )
         
-        normalized_goal_bearing = ((goal_bearing + 180) % 360) - 180
-        rotation_ease = normalized_goal_bearing / 180
-        rotation_speed = rotation_ease * (motors.config.max_speed * 1)
+        # normalized_goal_bearing = math.floor(((goal_bearing + 180) % 360) - 180)
+        # rotation_ease = normalized_goal_bearing / 180
+        # rotation_speed = math.floor(rotation_ease * (motors.config.max_speed * 0.5))
         
-        if True:
-            motors.rotate_and_move(ball_bearing, rotation_speed, normalized_goal_bearing)
-            return
+        
+        
+        # if True:
+        #     print(ball_bearing, rotation_ease, rotation_speed)
+        #     motors.rotate_and_move(ball_bearing, motors.config.max_speed, rotation_speed)
+        #     return
 
         # Possession is latched: a ball held in the dribbler can sit outside the
         # bot mask and vanish, so it only clears when the ball is seen escaping
         # beyond the capture (orbit) radius.
-        if state.has_possession and (ball_vector and ball_distance > motors.config.orbit_standoff_radius):
+        if state.has_possession and (ball_vector and ball_distance > vision.orbit_radius):
             print('[auto] ball escaped capture radius -> possession cleared')
             state.has_possession = False
             state.has_orbited = False
