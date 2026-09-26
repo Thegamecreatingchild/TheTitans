@@ -29,6 +29,7 @@ class ControlState:
     keys_last_seen: float = 0.0
     print_vector_requested: bool = False
     debug_motor: bool = False
+    take_photo : bool = False
 
     # Analog gamepad input, sent as a single (x, y, rot) sample per message
     # rather than a held-key set. joystick_active latches on the first

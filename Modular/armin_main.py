@@ -15,6 +15,7 @@ import math
 import signal
 import sys
 import time
+from pathlib import Path
 
 import cv2
 import websockets
@@ -114,7 +115,8 @@ class ArminApplication:
     async def stream_camera(self, picam) -> None:
         """Publish the latest ball + goal observations and JPEG to connected clients."""
         while self.robot_state.is_running:
-            frame, ball_offset, goal_offset = self.robot_vision.process_frame(picam)
+
+            frame, ball_offset, goal_offset, original_frame = self.robot_vision.process_frame(picam, )
             now = time.time()
 
             # Only stamp last_seen on a real detection so staleness checks stay honest.
@@ -124,13 +126,29 @@ class ArminApplication:
             self.robot_state.goal.offset = goal_offset
             if goal_offset is not None:
                 self.robot_state.goal.last_seen = now
-
+            self.take_photo(original_frame)
             self._print_requested_vector()
             success, encoded = cv2.imencode('.jpg', frame)
             if success:
                 await self.robot_websocket.broadcast(encoded.tobytes())
             await asyncio.sleep(self.robot_config.control.camera_loop_delay)
 
+    def take_photo(self, frame):        
+        if not self.robot_state.control.take_photo: 
+            return
+        self.robot_state.control.take_photo = False
+        PHOTOS_DIR = Path("Photos")
+
+        n = 0
+        
+        for item in PHOTOS_DIR.iterdir():
+            if item == None: break
+            if item.name[:5] == 'calib':
+                n += 1
+        
+        cv2.imwrite(f"Photos/calib_{n + 1}.png", frame)
+        return
+    
     def _print_requested_vector(self) -> None:
         if not self.robot_state.control.print_vector_requested:
             return

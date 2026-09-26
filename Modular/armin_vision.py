@@ -10,6 +10,7 @@ finding a ball, and returning its position to allow other modules to operate wit
 
 """
 
+from pathlib import Path
 import math
 from typing import Optional, Tuple
 
@@ -78,7 +79,7 @@ class VisionService:
             tileGridSize=self.config.clahe_tile_grid,
         )
 
-    def process_frame(self, picam) -> Tuple[np.ndarray, Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+    def process_frame(self, picam) -> Tuple[np.ndarray, Optional[Tuple[int, int]], Optional[Tuple[int, int]], Optional[np.ndarray]]:
         """Capture one frame and return ``(frame, ball_offset, goal_offset)``.
 
         Both targets are detected on every frame from the same capture. The ball
@@ -90,6 +91,8 @@ class VisionService:
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
+        original_frame = np.copy(frame)
+        
         height, width = frame.shape[:2]
         centre_x, centre_y = width // 2, height // 2
         centre = (centre_x, centre_y)
@@ -130,7 +133,7 @@ class VisionService:
             frame = cv2.addWeighted(frame, 0.7, ball_layer, 0.3, 0)
             frame = cv2.addWeighted(frame, 0.7, goal_layer, 0.3, 0)
 
-        return frame, ball_offset, goal_offset
+        return frame, ball_offset, goal_offset, original_frame
 
     def _masked_threshold(self, hsv: np.ndarray, target: str) -> np.ndarray:
         """Threshold ``hsv`` for ``target`` and restrict it to the valid region."""

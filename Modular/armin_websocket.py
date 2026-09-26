@@ -103,6 +103,8 @@ class WebSocketController:
             self._update_joystick(data)
         elif message_type == 'debug_vector':
             self.state.control.print_vector_requested = True
+        elif message_type == 'camera_capture':
+            self.state.control.take_photo = True
         elif message_type == 'debug_motor':
             enabled = bool(data.get('enabled', not self.state.control.debug_motor))
             self.state.control.debug_motor = enabled

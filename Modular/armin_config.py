@@ -64,8 +64,13 @@ class VisionConfig:
     """HSV, geometry, camera-angle, timeout, and CLAHE tuning values."""
 
     # HSV bounds are kept together so calibration is easy to read and edit.
-    ball_lower: Tuple[int, int, int] = (0, 180, 77)
+    # ball_lower: Tuple[int, int, int] = (0, 200, 77)
+    # ball_upper: Tuple[int, int, int] = (15, 255, 255)
+    
+    # Values for in-house testing
+    ball_lower: Tuple[int, int, int] = (0, 200, 70)
     ball_upper: Tuple[int, int, int] = (15, 255, 255)
+    
     min_contour_area: int = 1
     dead_zone_radius: int = 132
     ball_dribble_radius: int = 145
@@ -77,10 +82,17 @@ class VisionConfig:
     debug_mask : bool = True
     valid_mask_path: str = 'bot_mask.png'
     
-    yellow_goal_lower: Tuple[int, int, int] = (15, 235, 60)
+    # yellow_goal_lower: Tuple[int, int, int] = (20, 235, 100)
+    # yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
+    
+    # blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
+    # blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
+    
+    yellow_goal_lower: Tuple[int, int, int] = (20, 200, 30)
     yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
-    blue_goal_lower: Tuple[int, int, int] = (95, 207, 60) # 95, 207, 60
-    blue_goal_upper: Tuple[int, int, int] = (105, 255, 100) # 105, 255, 100
+    
+    blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
+    blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
 
     goal_stop_distance : int = 180
     goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
@@ -89,7 +101,7 @@ class VisionConfig:
     
     goals : Tuple[str, str] = ('yellow_goal', 'blue_goal')
     
-    target_goal : str = goals[1]  # 'yellow_goal' or 'blue_goal' - the goal we attack
+    target_goal : str = goals[0]  # 'yellow_goal' or 'blue_goal' - the goal we attack
     opposite_goal : str = goals[1] if target_goal == goals[0] else goals[0]
     
 
@@ -98,9 +110,9 @@ class CameraConfig:
     """Capture format and manual image controls requested from Picamera2."""
 
     size: Tuple[int, int] = (640, 480)
-    fps: int = 120
-    exposure_time: int = 66656
-    analogue_gain: float = 8.677966117858887
+    fps: int = 5 # 120
+    exposure_time: int = 199_998 # 66656
+    analogue_gain: float = 1.0 # 8.677966117858887
     colour_gains: Tuple[float, float] = (2.4364535808563232, 1.9698092937469482)
 
     @property
