@@ -1,0 +1,8 @@
+numpy
+websockets
+adafruit-blinka
+adafruit-circuitpython-busdevice
+opencv-python
+gpiozero
+picamera2
+rpi-libcamera

@@ -260,7 +260,7 @@ class MotorController:
         )
         self.rotate_and_move(ball_angle, speed, eased_rotation)
 
-    def orbit_to_behind_ball(self, target_bearing: float = 0.0) -> bool:
+    def orbit_to_behind_ball(self, target_bearing: float = 0.0, eased_rotation : float = 0.0) -> bool:
         """Sweep around the ball with pure translation (no spin) until it lies on
         ``target_bearing`` (robot frame, 0 = ahead; pass the goal bearing to line
         the ball up with the goal). Returns True once arrived."""
@@ -288,19 +288,7 @@ class MotorController:
             self._debug("Arrived behind ball")
             return True
 
-        # sweep perpendicular to the ball, easing in as we approach the target angle
-        tangent_dir = ball_bearing + (90 if angular_error > 0 else -90)
-        ease = min(
-            abs(angular_error) / self.config.orbit_full_speed_angle,
-            1.0,
-        )
-        tangent_speed = (
-            self.config.max_speed
-            * self.config.orbit_max_tangential_speed_ratio
-            * ease
-        )
-
-        # hold a fixed standoff radius so the sweep doesn't clip or drift from the ball
+        # Hold a fixed standoff radius so the sweep doesn't clip or drift from the ball
         radial_error = distance - orbit_radius
         maximum_radial_speed = (
             self.config.max_speed * self.config.orbit_max_radial_speed_ratio
@@ -312,8 +300,23 @@ class MotorController:
                 radial_error * self.config.orbit_radial_gain,
             ),
         )
+        
+        # sweep perpendicular to the ball, if radial_error is close to zero, 
+        # ease in as we approach the target angle
+        orbit_dir = ball_bearing + (90 if angular_error > 0 else -90)
+        ease = min(
+            abs(angular_error) / self.config.orbit_full_speed_angle,
+            1.0,
+        )
+        tangent_speed = (
+            self.config.max_speed
+            * self.config.orbit_max_tangential_speed_ratio
+            * ease
+        )
 
-        tdx, tdy = math.sin(math.radians(tangent_dir)), -math.cos(math.radians(tangent_dir))
+
+
+        tdx, tdy = math.sin(math.radians(orbit_dir)), -math.cos(math.radians(orbit_dir))
         rdx, rdy = math.sin(math.radians(ball_bearing)), -math.cos(math.radians(ball_bearing))
         vx = tangent_speed * tdx + radial_speed * rdx
         vy = tangent_speed * tdy + radial_speed * rdy
@@ -321,7 +324,8 @@ class MotorController:
         final_bearing = math.degrees(math.atan2(vx, -vy)) % 360
         final_speed = int(min(math.hypot(vx, vy), self.config.max_speed))
         
-        self.move(final_bearing, final_speed)
+        self.rotate_and_move(final_bearing, final_speed, eased_rotation)
+        # self.move(final_bearing, final_speed)
         return False
     
     def drive_to_goal(self, goal_angle: float, distance: float) -> None:

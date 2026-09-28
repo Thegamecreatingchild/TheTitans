@@ -26,7 +26,7 @@ from armin_motors import MotorController
 from armin_state import RobotState
 from armin_vision import VisionService
 from armin_websocket import WebSocketController
-
+from armin_solenoid import Solenoid
 
 class ConsoleLogTee:
     """Preserve console output while forwarding complete lines to the UI."""
@@ -70,6 +70,10 @@ class ArminApplication:
             self.robot_config.vision,
             self.robot_vision,
             self.robot_motors,
+        )
+        self.robot_solenoid = Solenoid(
+            self.robot_config.solenoid.GPIOpin, 
+            self.robot_config.solenoid.active_time,
         )
         self.original_stdout = sys.stdout
         sys.stdout = ConsoleLogTee(sys.stdout, self.robot_websocket.record_log) # records smth for websockets
@@ -216,7 +220,10 @@ class ArminApplication:
         motors = self.robot_motors
         ball, goal = state.ball, state.goal
         timeout = vision.ball_lost_timeout
+        solenoid = self.robot_solenoid
         
+        # ! Outstanding bug - this is code below is now redundant because I have bypassed 
+        # ! it figure out search logic later.
         # Find the ball and the goal
         if ball.offset is None and now - ball.last_seen > timeout:
             ball_vector = None
@@ -234,6 +241,9 @@ class ArminApplication:
                 ball.offset,
                 vision.camera_rotation_offset,
             )
+            vision.last_ball_vector = ball_vector
+            vision.last_ball_distance = ball_distance
+        
         if goal_vector:
             goal_distance = math.hypot(*goal.offset)
             goal_bearing = self._bearing_from_offset(
@@ -241,34 +251,30 @@ class ArminApplication:
                 vision.camera_rotation_offset,
             )
             vision.last_goal_vector = goal_vector
+            vision.last_goal_distance = goal_distance
         
-        
-        
-        if not goal_vector:
+        if not goal_vector or not goal_bearing or not goal_distance:
             goal_vector = vision.last_goal_vector
             goal_bearing = self._bearing_from_offset(goal_vector, vision.camera_rotation_offset)
+            goal_distance = vision.last_goal_distance
+            
         
-        if not goal_distance:
-            motors.move()
-        
+        if not ball_vector or not ball_bearing or not ball_distance:
+            ball_vector = vision.last_ball_vector
+            ball_bearing = self._bearing_from_offset(ball_vector, vision.camera_rotation_offset)
+            ball_distance = vision.last_ball_distance
+               
         # Normalizes goal bearing before calculating easing
         rotation_ease = (((goal_bearing + 180) % 360) - 180) / 180
         rotation_speed = rotation_ease * (motors.config.max_speed * 2)
-
-        print(rotation_ease, rotation_speed)
         
         rotation_ease = math.floor(rotation_ease)
         rotation_speed = math.floor(rotation_speed)
-        
-        # if True:
-        #     print(ball_bearing, rotation_ease, rotation_speed)
-        #     motors.rotate_and_move(ball_bearing, motors.config.max_speed, rotation_speed)
-        #     return
 
         # Possession is latched: a ball held in the dribbler can sit outside the
         # bot mask and vanish, so it only clears when the ball is seen escaping
         # beyond the capture (orbit) radius.
-        if state.has_possession and (ball_vector and ball_distance > vision.ball_dribble_radius):
+        if state.has_possession and (ball_distance > vision.ball_dribble_radius):
             print('[auto] ball escaped capture radius -> possession cleared')
             state.has_possession = False
             state.has_orbited = False
@@ -277,22 +283,27 @@ class ArminApplication:
             if goal_vector:
                 print("Driving to goal")
                 
-                if goal_distance < vision.goal_stop_distance: return
+                if goal_distance < vision.goal_stop_distance: 
+                    if ball_distance <= vision.in_range_for_kick:
+                        solenoid.kick()
+                    motors.stop()
+                    print("STOP")
                 
                 motors.drive_to_goal(goal_bearing, goal_distance)
             else:
                 print('Got ball, dunno where goal is')
-                # motors.spin(motors.config.max_speed * 0.5)
+                motors.spin(motors.config.max_speed * 0.5)
             return
 
         if not ball_vector:
             print("Lost the ball")
-            # motors.spin(motors.config.max_speed * 0.3)
+            motors.spin(motors.config.max_speed * 0.3)
             return
         
         if state.has_orbited and not state.has_possession:
             # target_bearing = goal_bearing - ball_bearing
             # if motors.spin_to_bearing(target_bearing, 3):
+            motors.spin_dribbler(True)
             print("Moving closer")
             motors.rotate_and_move(ball_bearing, motors.config.max_speed, rotation_speed)
             if ball_distance <= vision.ball_dribble_radius:
@@ -300,20 +311,16 @@ class ArminApplication:
                 state.has_possession = True
         
         elif ball_distance > vision.orbit_radius:
-            print("Rotating while moving")
+            if ball_distance - vision.orbit_radius > 10:
+                motors.orbit_to_behind_ball()            
             motors.rotate_and_move(ball_bearing, motors.config.max_speed, rotation_speed)
-            # motors.drive_to_the_ball(True, ball_bearing, ball_distance, rotation_speed)
+            
             state.has_orbited = False
-        
-        # if not goal_still_visible:
-        #     print('Dunno where goal is')
-        #     motors.spin(ball_bearing, motors.config.max_speed * 0.)
-        #     pass
         
         elif ball_distance > vision.ball_dribble_radius or ball_bearing != goal_bearing - motors.config.goal_align_tolerance_degrees:
             # Line the ball up with the goal so driving at the ball pushes it goalward.
-            target_bearing = goal_bearing if goal_vector else 0.0
-            if motors.orbit_to_behind_ball(target_bearing):
+            target_bearing = goal_bearing
+            if motors.orbit_to_behind_ball(target_bearing, rotation_speed):
                 state.has_orbited = True
                 print('Arrived behind ball, now dribbling')
                 return

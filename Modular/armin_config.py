@@ -38,7 +38,7 @@ class MotorConfig:
     dribbler_calibration: Tuple[int, int] = (1437511680, 1245)
     dribbler_speed: int = 100_000_000
     
-    orbit_standoff_radius: int = 150
+    orbit_standoff_radius: int = 160
     orbit_arrived_angle_tolerance: float = 1.0
     orbit_arrived_radius_tolerance_ratio: float = 0.15
     orbit_full_speed_angle: float = 30.0
@@ -73,14 +73,17 @@ class VisionConfig:
     
     min_contour_area: int = 1
     dead_zone_radius: int = 132
-    ball_dribble_radius: int = 145
-    orbit_radius: int = 200
+    ball_dribble_radius: int = 147
+    orbit_radius: int = 210
     camera_rotation_offset: float = 0 #-90.0
     ball_lost_timeout: float = 0.5
     clahe_clip_limit: float = 2.5
     clahe_tile_grid: Tuple[int, int] = (8, 8)
     debug_mask : bool = True
     valid_mask_path: str = 'bot_mask.png'
+    
+    last_ball_vector : Tuple[float, float] = None
+    last_ball_distance : float = None
     
     # yellow_goal_lower: Tuple[int, int, int] = (20, 235, 100)
     # yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
@@ -98,6 +101,9 @@ class VisionConfig:
     goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
     
     last_goal_vector : Tuple[float, float] = None
+    last_goal_distance : float = None
+    
+    in_range_for_kick: float = 118.7
     
     goals : Tuple[str, str] = ('yellow_goal', 'blue_goal')
     
@@ -110,9 +116,9 @@ class CameraConfig:
     """Capture format and manual image controls requested from Picamera2."""
 
     size: Tuple[int, int] = (640, 480)
-    fps: int = 5 # 120
-    exposure_time: int = 199_998 # 66656
-    analogue_gain: float = 1.0 # 8.677966117858887
+    fps: int = 120 #5 # 120
+    exposure_time: int = 66656 # 199_998 # 66656
+    analogue_gain: float = 8.677966117858887
     colour_gains: Tuple[float, float] = (2.4364535808563232, 1.9698092937469482)
 
     @property
@@ -170,7 +176,12 @@ class ImuConfig:
 
     address: int = 0x4A
 
-
+@dataclass(frozen=True)
+class SolenoidConfig:
+    """GPIO address and active time for solenoid"""
+    GPIOpin: int = 17
+    active_time: float = 0.01
+    
 @dataclass(frozen=True)
 class RobotConfig:
     """Complete startup configuration passed into ``HariApplication``."""
@@ -181,3 +192,4 @@ class RobotConfig:
     network: NetworkConfig = field(default_factory=NetworkConfig)
     control: ControlConfig = field(default_factory=ControlConfig)
     imu: ImuConfig = field(default_factory=ImuConfig)
+    solenoid: SolenoidConfig = field(default_factory=SolenoidConfig)
