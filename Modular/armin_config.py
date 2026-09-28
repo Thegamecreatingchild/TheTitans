@@ -41,7 +41,7 @@ class MotorConfig:
     orbit_standoff_radius: int = 160
     orbit_arrived_angle_tolerance: float = 1.0
     orbit_arrived_radius_tolerance_ratio: float = 0.15
-    orbit_full_speed_angle: float = 30.0
+    orbit_full_speed_angle: float = 15.0
     orbit_max_tangential_speed_ratio: float = 0.5
     orbit_max_radial_speed_ratio: float = 0.3
     orbit_radial_gain: float = 400_000.0

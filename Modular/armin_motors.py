@@ -289,6 +289,9 @@ class MotorController:
             return True
 
         # Hold a fixed standoff radius so the sweep doesn't clip or drift from the ball
+        
+        # target_radius = min(self.vision_config.ball_dribble_radius, orbit_radius / (angular_error))
+        
         radial_error = distance - orbit_radius
         maximum_radial_speed = (
             self.config.max_speed * self.config.orbit_max_radial_speed_ratio
@@ -336,11 +339,12 @@ class MotorController:
         """
         
         error = ((goal_angle + 180) % 360) - 180  # signed; + means goal is clockwise
+        
         if abs(error) > self.config.goal_align_tolerance_degrees:
-            self._debug(f"[auto] goal at {goal_angle:.1f}deg (err {error:.1f}) -> rotating to face it")
+            print(f"[auto] goal at {goal_angle:.1f}deg (err {error:.1f}) -> rotating to face it")
             if not self.spin_to_bearing(goal_angle, self.config.goal_align_tolerance_degrees): return
         else:
-            self._debug(f"[auto] goal aligned, distance={distance:.1f}px -> driving forward")
+            print(f"[auto] goal aligned, distance={distance:.1f}px -> driving forward")
             self.move(0, int(self.config.max_speed))
         self.spin_dribbler(True)
 

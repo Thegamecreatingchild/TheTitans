@@ -89,17 +89,11 @@ class ArminApplication:
         self.goal_toggle_switch.when_pressed = lambda: self.toggle_goal('yellow_goal')
         self.goal_toggle_switch.when_released = lambda: self.toggle_goal('blue_goal')
         self.last_goal_toggled_time : float = 0.0
-        # self.movement_switch.when_pressed = self.toggle_mode()
 
-    def toggle_mode(self, mode: str | None = None) -> None:
-        
-        if time.time() - self.last_goal_toggled_time < 2:
-            return
-        
+    def toggle_mode(self, mode: str | None = None) -> None:        
         if mode != None:
             if mode not in ['manual', 'auto']: raise ValueError('Please enter a valid robot control mode')
             self.robot_state.control.mode = mode
-            self.last_goal_toggled_time = time.time
             return
         
         if self.robot_state.control.mode == 'manual':
@@ -107,16 +101,15 @@ class ArminApplication:
             self.robot_state.control.active_keys.clear()
         else:
             self.robot_state.control.mode = 'manual'
-        
-        self.last_goal_toggled_time = time.time
         return
     
     def toggle_goal(self, goal: str | None = None) -> None:
+        if time.time() - self.last_goal_toggled_time < 2.0:
+            return
         goals = self.robot_vision.config.goals
         target_goal = self.robot_vision.config.target_goal
         if goal is None:
             target_goal = goals[1] if target_goal == goals[0] else goals[0]
-            return
         else:
             if goal not in goals: raise ValueError("Please choose a valid goal to switch to")
             target_goal = goal
@@ -149,7 +142,7 @@ class ArminApplication:
         try:
             await asyncio.gather(
                 self.stream_camera(picam),
-                self.motor_loop(),
+                self._manual_loop(),
             )
         finally:
             server.close()
@@ -219,7 +212,7 @@ class ArminApplication:
             + camera_rotation_offset
         ) % 360
 
-    async def motor_loop(self) -> None:
+    async def _manual_loop(self) -> None:
         """Apply manual commands or ball-following decisions at a fixed interval."""
         while self.robot_state.is_running:
             now = time.time()
@@ -307,7 +300,13 @@ class ArminApplication:
             ball_vector = vision.last_ball_vector
             ball_bearing = self._bearing_from_offset(ball_vector, vision.camera_rotation_offset)
             ball_distance = vision.last_ball_distance
-               
+        
+        if goal_vector is None:
+            motors.spin()
+        
+        if ball_vector is None:
+            motors.spin()
+        
         # Normalizes goal bearing before calculating easing
         rotation_ease = (((goal_bearing + 180) % 360) - 180) / 180
         rotation_speed = rotation_ease * (motors.config.max_speed * 2)
@@ -338,11 +337,6 @@ class ArminApplication:
                 print('Got ball, dunno where goal is')
                 motors.spin(motors.config.max_speed * 0.5)
             return
-
-        if not ball_vector:
-            print("Lost the ball")
-            motors.spin(motors.config.max_speed * 0.3)
-            return
         
         if state.has_orbited and not state.has_possession:
             # target_bearing = goal_bearing - ball_bearing
@@ -355,7 +349,7 @@ class ArminApplication:
                 state.has_possession = True
         
         elif ball_distance > vision.orbit_radius:
-            if ball_distance - vision.orbit_radius > 10:
+            if ball_distance - vision.orbit_radius > 10: # Orbiting a little early
                 motors.orbit_to_behind_ball()            
             motors.rotate_and_move(ball_bearing, motors.config.max_speed, rotation_speed)
             
