@@ -77,15 +77,52 @@ class ArminApplication:
         )
         self.original_stdout = sys.stdout
         sys.stdout = ConsoleLogTee(sys.stdout, self.robot_websocket.record_log) # records smth for websockets
-        self.movement_switch = Button(self.robot_config.control.movement_switch_gpio)
-        self.movement_switch.when_pressed = lambda: self.set_mode('auto')
-        self.movement_switch.when_released = lambda: self.set_mode('manual')
+        self.mode_toggle_button = Button(
+            self.robot_config.control.movement_switch_gpio
+        )
+        self.mode_toggle_button.when_pressed = lambda: self.toggle_mode()
+        
+        self.goal_toggle_switch = Button(
+            self.robot_config.control.goal_switch_gpio,
+            # bounce_time = 1
+        )
+        self.goal_toggle_switch.when_pressed = lambda: self.toggle_goal('yellow_goal')
+        self.goal_toggle_switch.when_released = lambda: self.toggle_goal('blue_goal')
+        self.last_goal_toggled_time : float = 0.0
+        # self.movement_switch.when_pressed = self.toggle_mode()
 
-    def set_mode(self, mode: str) -> None:
-        self.robot_state.control.mode = mode
-        if mode != 'manual':
+    def toggle_mode(self, mode: str | None = None) -> None:
+        
+        if time.time() - self.last_goal_toggled_time < 2:
+            return
+        
+        if mode != None:
+            if mode not in ['manual', 'auto']: raise ValueError('Please enter a valid robot control mode')
+            self.robot_state.control.mode = mode
+            self.last_goal_toggled_time = time.time
+            return
+        
+        if self.robot_state.control.mode == 'manual':
+            self.robot_state.control.mode = 'auto'
             self.robot_state.control.active_keys.clear()
-        print(f'[switch] mode set to {mode}')
+        else:
+            self.robot_state.control.mode = 'manual'
+        
+        self.last_goal_toggled_time = time.time
+        return
+    
+    def toggle_goal(self, goal: str | None = None) -> None:
+        goals = self.robot_vision.config.goals
+        target_goal = self.robot_vision.config.target_goal
+        if goal is None:
+            target_goal = goals[1] if target_goal == goals[0] else goals[0]
+            return
+        else:
+            if goal not in goals: raise ValueError("Please choose a valid goal to switch to")
+            target_goal = goal
+        print(f'Switched to {target_goal}')
+        self.robot_vision.config.target_goal = target_goal
+        return
 
     async def run(self) -> None:
         """Initialize hardware, serve the browser, and run until shutdown."""
@@ -94,7 +131,11 @@ class ArminApplication:
         self.robot_websocket.set_loop(asyncio.get_running_loop())
         self.robot_motors.setup()
         picam = self.robot_vision.setup_camera()
-        self.set_mode('auto' if self.movement_switch.is_pressed else 'manual')
+        self.toggle_mode('manual')
+        if self.goal_toggle_switch.is_active:
+            self.toggle_goal('yellow_goal')
+        else:
+            self.toggle_goal('blue_goal')
         server = await websockets.serve(
             self.robot_websocket.handle,
             '0.0.0.0',
@@ -235,6 +276,9 @@ class ArminApplication:
         else:
             goal_vector = goal.offset
 
+        ball_bearing, ball_distance = None, None
+        goal_bearing, goal_distance = None, None
+        
         if ball_vector:
             ball_distance = math.hypot(*ball.offset)
             ball_bearing = self._bearing_from_offset(
@@ -253,13 +297,13 @@ class ArminApplication:
             vision.last_goal_vector = goal_vector
             vision.last_goal_distance = goal_distance
         
-        if not goal_vector or not goal_bearing or not goal_distance:
+        if goal_vector is None or goal_distance is None:
             goal_vector = vision.last_goal_vector
             goal_bearing = self._bearing_from_offset(goal_vector, vision.camera_rotation_offset)
             goal_distance = vision.last_goal_distance
             
         
-        if not ball_vector or not ball_bearing or not ball_distance:
+        if ball_vector is None or ball_distance is None:
             ball_vector = vision.last_ball_vector
             ball_bearing = self._bearing_from_offset(ball_vector, vision.camera_rotation_offset)
             ball_distance = vision.last_ball_distance

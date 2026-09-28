@@ -143,6 +143,7 @@ class ControlConfig:
     debug_motor: bool = True
     debug_print_hz: int = 5
     movement_switch_gpio: int = 26
+    goal_switch_gpio : int = 25
     manual_translation_speed_ratio: float = 0.7
     manual_rotation_speed_ratio: float = 0.3
     manual_keys: dict[str, int] = field(
