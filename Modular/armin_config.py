@@ -23,22 +23,22 @@ class MotorConfig:
     wiring and the index assumptions in ``MotorController.move``.
     """
 
-    addresses: Tuple[int, ...] = (26, 28, 27, 25)
+    addresses: Tuple[int, ...] = (25, 26, 27, 28)
     # Each calibration is (electrical angle offset, sin/cos centre).
     calibrations: Tuple[Tuple[int, int], ...] = (
-        (1327731200, 1241),
-        (1435147520, 1243),
-        (1256835584, 1258),
-        (1150337792, 1247),
+        (1133688832, 1242),
+        (944037888, 1246),
+        (1327844608, 1233),
+        (1577042432, 1253),
     )
     max_speed: int = 100_000_000
     
-    enable_dribbler: bool = False
+    enable_dribbler: bool = True
     dribbler_address: int = 29
-    dribbler_calibration: Tuple[int, int] = (1437511680, 1245)
+    dribbler_calibration: Tuple[int, int] = (1437909504, 1246)
     dribbler_speed: int = 100_000_000
     
-    orbit_standoff_radius: int = 160
+    orbit_standoff_radius: int = 165
     orbit_arrived_angle_tolerance: float = 1.0
     orbit_arrived_radius_tolerance_ratio: float = 0.15
     orbit_full_speed_angle: float = 15.0
@@ -74,7 +74,7 @@ class VisionConfig:
     min_contour_area: int = 1
     dead_zone_radius: int = 132
     ball_dribble_radius: int = 147
-    orbit_radius: int = 210
+    orbit_radius: int = 205
     camera_rotation_offset: float = 0 #-90.0
     ball_lost_timeout: float = 0.5
     clahe_clip_limit: float = 2.5
@@ -91,7 +91,7 @@ class VisionConfig:
     # blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
     # blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
     
-    yellow_goal_lower: Tuple[int, int, int] = (20, 200, 30)
+    yellow_goal_lower: Tuple[int, int, int] = (20, 180, 30)
     yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
     
     blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
@@ -111,13 +111,17 @@ class VisionConfig:
     opposite_goal : str = goals[1] if target_goal == goals[0] else goals[0]
     
 
+@property
+def opposite_goal(self) -> str:
+    return self.goals[1] if self.target_goal == self.goals[0] else self.goals[0]
+
 @dataclass(frozen=True)
 class CameraConfig:
     """Capture format and manual image controls requested from Picamera2."""
 
     size: Tuple[int, int] = (640, 480)
-    fps: int = 120 #5 # 120
-    exposure_time: int = 66656 # 199_998 # 66656
+    fps: int = 120
+    exposure_time: int = 50000 # 66656
     analogue_gain: float = 8.677966117858887
     colour_gains: Tuple[float, float] = (2.4364535808563232, 1.9698092937469482)
 
@@ -155,12 +159,6 @@ class ControlConfig:
     miscellaneous_keys: dict[str, str] = field(
         default_factory=lambda: {'k': 'dribble', 'x': 'orbit'}
     )
-
-    # Analog gamepad input (see MotorController.apply_joystick). Deadzone is
-    # applied to both the stick magnitude and the rotation axis; ratios reuse
-    # the same speed scale as the WASD/QE keys so behaviour stays consistent
-    # between input methods.
-    joystick_deadzone: float = 0.15
 
     @property
     def dribble_key(self) -> str:

@@ -82,13 +82,13 @@ class ArminApplication:
         )
         self.mode_toggle_button.when_pressed = lambda: self.toggle_mode()
         
-        self.goal_toggle_switch = Button(
-            self.robot_config.control.goal_switch_gpio,
-            # bounce_time = 1
-        )
-        self.goal_toggle_switch.when_pressed = lambda: self.toggle_goal('yellow_goal')
-        self.goal_toggle_switch.when_released = lambda: self.toggle_goal('blue_goal')
-        self.last_goal_toggled_time : float = 0.0
+        # self.goal_toggle_switch = Button(
+        #     self.robot_config.control.goal_switch_gpio,
+        #     # bounce_time = 1
+        # )
+        # self.goal_toggle_switch.when_pressed = lambda: self.toggle_goal('yellow_goal')
+        # self.goal_toggle_switch.when_released = lambda: self.toggle_goal('blue_goal')
+        # self.last_goal_toggled_time : float = 0.0
 
     def toggle_mode(self, mode: str | None = None) -> None:        
         if mode != None:
@@ -103,19 +103,19 @@ class ArminApplication:
             self.robot_state.control.mode = 'manual'
         return
     
-    def toggle_goal(self, goal: str | None = None) -> None:
-        if time.time() - self.last_goal_toggled_time < 2.0:
-            return
-        goals = self.robot_vision.config.goals
-        target_goal = self.robot_vision.config.target_goal
-        if goal is None:
-            target_goal = goals[1] if target_goal == goals[0] else goals[0]
-        else:
-            if goal not in goals: raise ValueError("Please choose a valid goal to switch to")
-            target_goal = goal
-        print(f'Switched to {target_goal}')
-        self.robot_vision.config.target_goal = target_goal
-        return
+    # def toggle_goal(self, goal: str | None = None) -> None:
+    #     if time.time() - self.last_goal_toggled_time < 2.0:
+    #         return
+    #     goals = self.robot_vision.config.goals
+    #     target_goal = self.robot_vision.config.target_goal
+    #     if goal is None:
+    #         target_goal = goals[1] if target_goal == goals[0] else goals[0]
+    #     else:
+    #         if goal not in goals: raise ValueError("Please choose a valid goal to switch to")
+    #         target_goal = goal
+    #     print(f'Switched to {target_goal}')
+    #     self.robot_vision.config.target_goal = target_goal
+    #     return
 
     async def run(self) -> None:
         """Initialize hardware, serve the browser, and run until shutdown."""
@@ -125,10 +125,10 @@ class ArminApplication:
         self.robot_motors.setup()
         picam = self.robot_vision.setup_camera()
         self.toggle_mode('manual')
-        if self.goal_toggle_switch.is_active:
-            self.toggle_goal('yellow_goal')
-        else:
-            self.toggle_goal('blue_goal')
+        # if self.goal_toggle_switch.is_active:
+        #     self.toggle_goal('yellow_goal')
+        # else:
+        #     self.toggle_goal('blue_goal')
         server = await websockets.serve(
             self.robot_websocket.handle,
             '0.0.0.0',
@@ -219,36 +219,24 @@ class ArminApplication:
             control = self.robot_state.control
             if control.mode == 'manual':
                 timeout = self.robot_config.control.key_lost_timeout
-                joystick_fresh = (
-                    control.joystick_active
-                    and now - control.joystick_last_seen <= timeout
+                stale = (
+                    not control.active_keys
+                    or now - control.keys_last_seen > timeout
                 )
-                if joystick_fresh:
-                    # A connected gamepad takes priority over the WASD keys
-                    # for as long as it keeps sending samples.
-                    self.robot_motors.apply_joystick(
-                        control.joystick_x,
-                        control.joystick_y,
-                        control.joystick_rot,
-                        control.joystick_dribble,
-                        control.joystick_orbit,
-                    )
+                if stale: # Stale if never seen this frame or the last detection is too old.
+                    self.robot_motors.debug('[manual] no keys held or stale -> stop()')
+                    self.robot_motors.stop()
                 else:
-                    stale = (
-                        not control.active_keys
-                        or now - control.keys_last_seen > timeout
-                    )
-                    if stale: # Stale if never seen this frame or the last detection is too old.
-                        self.robot_motors.debug('[manual] no keys held or stale -> stop()')
-                        self.robot_motors.stop()
-                    else:
-                        self.robot_motors.apply_manual_keys(control.active_keys)
+                    self.robot_motors.apply_manual_keys(control.active_keys)
             else:
-                self._apply_auto(now)
+                if self.robot_state.is_goalie: 
+                    self.apply_goalie(now)
+                else:
+                    self.apply_striker(now)
             await asyncio.sleep(self.robot_config.control.motor_loop_delay)
 
-    def _apply_auto(self, now: float) -> None:
-        """Turn fresh ball/goal observations into a single drive decision."""
+    def apply_striker(self, now: float) -> None:
+        """Turn fresh ball/goal observations into an offensive play."""
         state = self.robot_state
         vision = self.robot_config.vision
         motors = self.robot_motors
@@ -290,30 +278,35 @@ class ArminApplication:
             vision.last_goal_vector = goal_vector
             vision.last_goal_distance = goal_distance
         
-        if goal_vector is None or goal_distance is None:
-            goal_vector = vision.last_goal_vector
-            goal_bearing = self._bearing_from_offset(goal_vector, vision.camera_rotation_offset)
-            goal_distance = vision.last_goal_distance
+        if vision.last_goal_vector is not None:
+            if goal_vector is None or goal_distance is None:
+                goal_vector = vision.last_goal_vector
+                goal_bearing = self._bearing_from_offset(goal_vector, vision.camera_rotation_offset)
+                goal_distance = vision.last_goal_distance
             
+        if vision.last_ball_vector is not None:    
+            if ball_vector is None or ball_distance is None:
+                ball_vector = vision.last_ball_vector
+                ball_bearing = self._bearing_from_offset(ball_vector, vision.camera_rotation_offset)
+                ball_distance = vision.last_ball_distance
         
-        if ball_vector is None or ball_distance is None:
-            ball_vector = vision.last_ball_vector
-            ball_bearing = self._bearing_from_offset(ball_vector, vision.camera_rotation_offset)
-            ball_distance = vision.last_ball_distance
-        
-        if goal_vector is None:
-            motors.spin()
+        if goal_vector is None and ball_vector is not None:
+            motors.drive_to_the_ball(True, ball_bearing, ball_distance)
         
         if ball_vector is None:
             motors.spin()
-        
+               
         # Normalizes goal bearing before calculating easing
-        rotation_ease = (((goal_bearing + 180) % 360) - 180) / 180
+
+        if goal_bearing != None:
+            rotation_ease = (((goal_bearing + 180) % 360) - 180) / 180
+        else:
+            rotation_ease = 0
         rotation_speed = rotation_ease * (motors.config.max_speed * 2)
         
         rotation_ease = math.floor(rotation_ease)
         rotation_speed = math.floor(rotation_speed)
-
+        
         # Possession is latched: a ball held in the dribbler can sit outside the
         # bot mask and vanish, so it only clears when the ball is seen escaping
         # beyond the capture (orbit) radius.
@@ -331,10 +324,11 @@ class ArminApplication:
                         solenoid.kick()
                     motors.stop()
                     print("STOP")
-                
-                motors.drive_to_goal(goal_bearing, goal_distance)
+                motors.spin_dribbler(True)
+                motors.drive_to_goal(goal_bearing, rotation_speed)
             else:
                 print('Got ball, dunno where goal is')
+                motors.spin_dribbler(True)
                 motors.spin(motors.config.max_speed * 0.5)
             return
         
@@ -352,7 +346,6 @@ class ArminApplication:
             if ball_distance - vision.orbit_radius > 10: # Orbiting a little early
                 motors.orbit_to_behind_ball()            
             motors.rotate_and_move(ball_bearing, motors.config.max_speed, rotation_speed)
-            
             state.has_orbited = False
         
         elif ball_distance > vision.ball_dribble_radius or ball_bearing != goal_bearing - motors.config.goal_align_tolerance_degrees:
