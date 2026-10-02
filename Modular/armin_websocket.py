@@ -99,19 +99,14 @@ class WebSocketController:
             self._update_mode(data.get('mode'))
         elif message_type == 'keys':
             self._update_keys(data.get('keys', []))
-        elif message_type == 'joystick':
-            self._update_joystick(data)
         elif message_type == 'debug_vector':
             self.state.control.print_vector_requested = True
         elif message_type == 'camera_capture':
             self.state.control.take_photo = True
-            print("Taking a photo")
         elif message_type == 'debug_motor':
             enabled = bool(data.get('enabled', not self.state.control.debug_motor))
             self.state.control.debug_motor = enabled
             print(f"[debug] motor debug logging {'ON' if enabled else 'OFF'}")
-        elif message_type == 'clahe':
-            self._update_clahe(data)
 
     def _update_vision_params(self, data: dict) -> None:
         ball_lower = list(self.vision_config.ball_lower)
@@ -143,7 +138,6 @@ class WebSocketController:
         self.state.control.mode = mode
         if mode != 'manual':
             self.state.control.active_keys.clear()
-            self.state.control.joystick_active = False
 
     def _update_keys(self, incoming) -> None:
         valid_keys = set(self.control_config.manual_keys)
@@ -152,37 +146,6 @@ class WebSocketController:
         valid = {key for key in incoming if key in valid_keys}
         self.state.control.active_keys = valid
         self.state.control.keys_last_seen = time.time()
-
-    def _update_joystick(self, data: dict) -> None:
-        """Store one analog gamepad sample: stick axes plus button states."""
-        control = self.state.control
-
-        def axis(name: str) -> float:
-            try:
-                return max(-1.0, min(1.0, float(data.get(name, 0.0))))
-            except (TypeError, ValueError):
-                return 0.0
-
-        control.joystick_x = axis('x')
-        control.joystick_y = axis('y')
-        control.joystick_rot = axis('rot')
-        control.joystick_dribble = bool(data.get('dribble', False))
-        control.joystick_orbit = bool(data.get('orbit', False))
-        control.joystick_active = True
-        control.joystick_last_seen = time.time()
-
-    def _update_clahe(self, data: dict) -> None:
-        clip_limit = data.get('clip_limit')
-        tile_grid = data.get('tile_grid')
-        if clip_limit is not None:
-            clip_limit = float(clip_limit)
-        if tile_grid is not None:
-            tile_grid = (int(tile_grid[0]), int(tile_grid[1]))
-        self.vision.update_clahe(clip_limit, tile_grid)
-        print(
-            f"[clahe] clip_limit={self.vision_config.clahe_clip_limit} "
-            f"tile_grid={self.vision_config.clahe_tile_grid}"
-        )
 
     async def broadcast(self, payload: bytes) -> None:
         if self.state.clients:

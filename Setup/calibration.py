@@ -58,7 +58,7 @@ while setupmotorcount < motorcount:
 
 setupmotorcount = 0
 while setupmotorcount < motorcount:
-    motor[setupmotorcount].set_current_limit_foc(65536)  # set current limit to 1 amp (only works in FOC mode)
+    motor[setupmotorcount].set_current_limit_foc(65536 * 2)  # set current limit to 1 amp (only works in FOC mode)
     motor[setupmotorcount].set_id_pid_constants(1500, 200)
     motor[setupmotorcount].set_iq_pid_constants(1500, 200)
     motor[setupmotorcount].set_speed_pid_constants(4e-2, 4e-4, 3e-2)  # Constants valid for FOC and Robomaster M2006 P36 motor only, see tuning constants document for more details
@@ -85,6 +85,8 @@ while setupmotorcount < motorcount:
     motormode[setupmotorcount] = 12
     
     setupmotorcount += 1
+
+last_printed : float = time.time()
 
 while True:
     userinput = read_input()
@@ -171,3 +173,14 @@ while True:
     time.sleep(0.001)
     for i in range(motorcount):
         motor[i].update_quick_data_readout()
+
+    # if time.time() - last_printed >= 0.5:
+    #     for i in range(motorcount):
+    #         m = motor[i]
+    #         speed = m.get_speed_QDR()
+    #         if speed >= 2**31:      # convert unsigned read back to signed
+    #             speed -= 2**32
+    #         print(i, format(m.get_ERROR1_QDR(), '08b'),
+    #               format(m.get_ERROR2_QDR(), '08b'),
+    #               "spd", speed, "pos", m.get_position_QDR())
+    #     last_printed = time.time()

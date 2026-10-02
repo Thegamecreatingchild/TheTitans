@@ -23,25 +23,25 @@ class MotorConfig:
     wiring and the index assumptions in ``MotorController.move``.
     """
 
-    addresses: Tuple[int, ...] = (26, 28, 27, 25)
+    addresses: Tuple[int, ...] = (25, 26, 27, 28)
     # Each calibration is (electrical angle offset, sin/cos centre).
     calibrations: Tuple[Tuple[int, int], ...] = (
-        (1327731200, 1241),
-        (1435147520, 1243),
-        (1256835584, 1258),
-        (1150337792, 1247),
+        (1133688832, 1242),
+        (944037888, 1246),
+        (1327844608, 1233),
+        (1577042432, 1253),
     )
     max_speed: int = 100_000_000
     
-    enable_dribbler: bool = False
+    enable_dribbler: bool = True
     dribbler_address: int = 29
-    dribbler_calibration: Tuple[int, int] = (1437511680, 1245)
-    dribbler_speed: int = 100_000_000
+    dribbler_calibration: Tuple[int, int] = (1438725120, 1247)
+    dribbler_speed: int = 150_000_000
     
-    orbit_standoff_radius: int = 150
+    orbit_standoff_radius: int = 165
     orbit_arrived_angle_tolerance: float = 1.0
     orbit_arrived_radius_tolerance_ratio: float = 0.15
-    orbit_full_speed_angle: float = 30.0
+    orbit_full_speed_angle: float = 15.0
     orbit_max_tangential_speed_ratio: float = 0.5
     orbit_max_radial_speed_ratio: float = 0.3
     orbit_radial_gain: float = 400_000.0
@@ -64,43 +64,65 @@ class VisionConfig:
     """HSV, geometry, camera-angle, timeout, and CLAHE tuning values."""
 
     # HSV bounds are kept together so calibration is easy to read and edit.
-    ball_lower: Tuple[int, int, int] = (0, 180, 77)
+    # ball_lower: Tuple[int, int, int] = (0, 200, 77)
+    # ball_upper: Tuple[int, int, int] = (15, 255, 255)
+    
+    # Values for in-house testing
+    ball_lower: Tuple[int, int, int] = (0, 200, 70)
     ball_upper: Tuple[int, int, int] = (15, 255, 255)
+    
     min_contour_area: int = 1
     dead_zone_radius: int = 132
-    ball_dribble_radius: int = 145
-    orbit_radius: int = 200
+    ball_dribble_radius: int = 147
+    orbit_radius: int = 205
     camera_rotation_offset: float = 0 #-90.0
     ball_lost_timeout: float = 0.5
     clahe_clip_limit: float = 2.5
     clahe_tile_grid: Tuple[int, int] = (8, 8)
-    debug_mask : bool = True
+    debug_mask : bool = False
     valid_mask_path: str = 'bot_mask.png'
     
-    yellow_goal_lower: Tuple[int, int, int] = (15, 235, 60)
+    last_ball_vector : Tuple[float, float] = None
+    last_ball_distance : float = None
+    
+    # yellow_goal_lower: Tuple[int, int, int] = (20, 235, 100)
+    # yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
+    
+    # blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
+    # blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
+    
+    yellow_goal_lower: Tuple[int, int, int] = (20, 180, 30)
     yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
-    blue_goal_lower: Tuple[int, int, int] = (95, 207, 60) # 95, 207, 60
-    blue_goal_upper: Tuple[int, int, int] = (105, 255, 100) # 105, 255, 100
+    
+    blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
+    blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
 
-    goal_stop_distance : int = 180
+    goal_stop_distance : int = 200
     goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
     
     last_goal_vector : Tuple[float, float] = None
+    last_goal_distance : float = None
+    
+    in_range_for_kick: float = 118.7
     
     goals : Tuple[str, str] = ('yellow_goal', 'blue_goal')
     
-    target_goal : str = goals[1]  # 'yellow_goal' or 'blue_goal' - the goal we attack
+    target_goal : str = goals[0]  # 'yellow_goal' or 'blue_goal' - the goal we attack
     opposite_goal : str = goals[1] if target_goal == goals[0] else goals[0]
     
+
+@property
+def opposite_goal(self) -> str:
+    return self.goals[1] if self.target_goal == self.goals[0] else self.goals[0]
 
 @dataclass(frozen=True)
 class CameraConfig:
     """Capture format and manual image controls requested from Picamera2."""
 
     size: Tuple[int, int] = (640, 480)
-    fps: int = 5 # 120
-    exposure_time: int = 199_998 # 66656
-    analogue_gain: float = 1.0 # 8.677966117858887
+    fps: int = 60
+    exposure_time: int = 15_000 # 66656
+    analogue_gain: float = 16
     colour_gains: Tuple[float, float] = (2.4364535808563232, 1.9698092937469482)
 
     @property
@@ -121,10 +143,11 @@ class ControlConfig:
 
     key_lost_timeout: float = 0.3
     motor_loop_delay: float = 0.02
-    camera_loop_delay: float = 0.01
+    # camera_loop_delay: float = 0.01
     debug_motor: bool = True
     debug_print_hz: int = 5
     movement_switch_gpio: int = 26
+    goal_switch_gpio : int = 25
     manual_translation_speed_ratio: float = 0.7
     manual_rotation_speed_ratio: float = 0.3
     manual_keys: dict[str, int] = field(
@@ -136,12 +159,6 @@ class ControlConfig:
     miscellaneous_keys: dict[str, str] = field(
         default_factory=lambda: {'k': 'dribble', 'x': 'orbit'}
     )
-
-    # Analog gamepad input (see MotorController.apply_joystick). Deadzone is
-    # applied to both the stick magnitude and the rotation axis; ratios reuse
-    # the same speed scale as the WASD/QE keys so behaviour stays consistent
-    # between input methods.
-    joystick_deadzone: float = 0.15
 
     @property
     def dribble_key(self) -> str:
@@ -158,7 +175,12 @@ class ImuConfig:
 
     address: int = 0x4A
 
-
+@dataclass(frozen=True)
+class SolenoidConfig:
+    """GPIO address and active time for solenoid"""
+    GPIOpin: int = 17
+    active_time: float = 0.01
+    
 @dataclass(frozen=True)
 class RobotConfig:
     """Complete startup configuration passed into ``HariApplication``."""
@@ -169,3 +191,4 @@ class RobotConfig:
     network: NetworkConfig = field(default_factory=NetworkConfig)
     control: ControlConfig = field(default_factory=ControlConfig)
     imu: ImuConfig = field(default_factory=ImuConfig)
+    solenoid: SolenoidConfig = field(default_factory=SolenoidConfig)
