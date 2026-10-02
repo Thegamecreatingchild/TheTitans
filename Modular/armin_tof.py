@@ -9,8 +9,11 @@ print(f"Number of ToFs: {len(chain)}")
  
 try:
     while True:
-        distances = chain.__getitem__(0)  # filtered values, one per sensor
-        print(" | ".join(f"{addr:#04x}: {d:6.1f}" for addr, d in zip(ADDRESSES, distances)))
+        # distances = chain.addresses  # filtered values, one per sensor
+        # print(" | ".join(f"{addr:#04x}: {d:6.1f}" for addr, d in zip(ADDRESSES, distances)))
+        distance = chain.__getitem__(0).read()
+        print(f"{distance}")        
+        
         time.sleep(0.05)
 except KeyboardInterrupt:
     print("\nstopped.")

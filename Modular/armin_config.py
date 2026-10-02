@@ -35,8 +35,8 @@ class MotorConfig:
     
     enable_dribbler: bool = True
     dribbler_address: int = 29
-    dribbler_calibration: Tuple[int, int] = (1438725120, 1247)
-    dribbler_speed: int = 150_000_000
+    dribbler_calibration: Tuple[int, int] = (1433137664, 1249)
+    dribbler_speed: int = -250_000_000
     
     orbit_standoff_radius: int = 165
     orbit_arrived_angle_tolerance: float = 1.0
