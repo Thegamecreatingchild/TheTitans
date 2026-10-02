@@ -98,9 +98,9 @@ class CameraConfig:
     """Capture format and manual image controls requested from Picamera2."""
 
     size: Tuple[int, int] = (640, 480)
-    fps: int = 120
-    exposure_time: int = 66656
-    analogue_gain: float = 8.677966117858887
+    fps: int = 5 # 120
+    exposure_time: int = 199_998 # 66656
+    analogue_gain: float = 1.0 # 8.677966117858887
     colour_gains: Tuple[float, float] = (2.4364535808563232, 1.9698092937469482)
 
     @property

@@ -9,7 +9,6 @@ This file contains a class that handles most vision logic, including boosting sa
 finding a ball, and returning its position to allow other modules to operate with new info.
 
 """
-
 import math
 from typing import Optional, Tuple
 

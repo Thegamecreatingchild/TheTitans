@@ -15,6 +15,7 @@ import math
 import signal
 import sys
 import time
+from pathlib import Path
 
 import cv2
 import websockets
@@ -130,6 +131,22 @@ class ArminApplication:
             if success:
                 await self.robot_websocket.broadcast(encoded.tobytes())
             await asyncio.sleep(self.robot_config.control.camera_loop_delay)
+
+    def take_photo(self, frame):
+        if not self.robot_state.control.take_photo: 
+            return
+        self.robot_state.control.take_photo = False
+        PHOTOS_DIR = Path("Photos")
+
+        n = 0
+        
+        for item in PHOTOS_DIR.iterdir():
+            if item.name[:5] == 'calib':
+                n += 1
+        
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
+        cv2.imwrite(f"calib_{n + 1}.png", frame_bgr)
+        return
 
     def _print_requested_vector(self) -> None:
         if not self.robot_state.control.print_vector_requested:
