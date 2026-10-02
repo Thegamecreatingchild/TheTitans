@@ -9,10 +9,12 @@ class Solenoid:
 
     def kick(self):
         try:
+            print("on")
             self.relay.on()
             sleep(self.delay) # pulse duration
             self.relay.off()
         finally:
+            print('off')
             self.relay.off # guarantee OFF even on crash/Ctrl+C
 
 if __name__ == '__main__':

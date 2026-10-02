@@ -34,13 +34,13 @@ class VisionService:
                 "generate it before starting VisionService."
             )
         self.valid_mask = cv2.rotate(self.valid_mask, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        self._clahe = self._create_clahe()
 
     def setup_camera(self) -> Picamera2:
         """Start the camera and apply configured exposure/white-balance settings."""
         picam = Picamera2()
         config = picam.create_video_configuration(
             main={'size': self.camera_config.size},
+            buffer_count = 3, # less buffers so stale frames don't pile up
             controls={
                 'FrameDurationLimits': (
                     self.camera_config.frame_duration_us,
@@ -65,20 +65,6 @@ class VisionService:
         )
         return picam
 
-    def update_clahe(self, clip_limit: float = None, tile_grid: Tuple[int, int] = None):
-        """Apply live low-light tuning and rebuild the OpenCV CLAHE filter."""
-        if clip_limit is not None:
-            self.config.clahe_clip_limit = clip_limit
-        if tile_grid is not None:
-            self.config.clahe_tile_grid = tile_grid
-        self._clahe = self._create_clahe()
-
-    def _create_clahe(self) -> cv2.CLAHE:
-        return cv2.createCLAHE(
-            clipLimit=self.config.clahe_clip_limit,
-            tileGridSize=self.config.clahe_tile_grid,
-        )
-
     def process_frame(self, picam) -> Tuple[np.ndarray, Optional[Tuple[int, int]], Optional[Tuple[int, int]], Optional[np.ndarray]]:
         """Capture one frame and return ``(frame, ball_offset, goal_offset)``.
 
@@ -90,8 +76,9 @@ class VisionService:
         frame = picam.capture_array()
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        frame = cv2.bitwise_and(frame, frame, mask=self.valid_mask)
 
-        original_frame = np.copy(frame)
+        # original_frame = frame.copy()
         
         height, width = frame.shape[:2]
         centre_x, centre_y = width // 2, height // 2
@@ -99,7 +86,7 @@ class VisionService:
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
         h, s, v = cv2.split(hsv)
-        s_boosted = np.clip(s * 1.8, 0, 255).astype(np.uint8)
+        s_boosted = cv2.convertScaleAbs(s, alpha=1.8)
         hsv_ball = cv2.merge([h, s_boosted, v])
 
         if self.valid_mask.shape[:2] != hsv.shape[:2]:
@@ -133,7 +120,10 @@ class VisionService:
             frame = cv2.addWeighted(frame, 0.7, ball_layer, 0.3, 0)
             frame = cv2.addWeighted(frame, 0.7, goal_layer, 0.3, 0)
 
-        return frame, ball_offset, goal_offset, original_frame
+
+        cv2.resize(frame, None, fx=0.5, fy=0.5)
+        
+        return frame, ball_offset, goal_offset, #original_frame
 
     def _masked_threshold(self, hsv: np.ndarray, target: str) -> np.ndarray:
         """Threshold ``hsv`` for ``target`` and restrict it to the valid region."""
@@ -176,6 +166,7 @@ class VisionService:
     @staticmethod
     def find_ball(contours, min_area: int) -> Optional[Tuple[int, int]]:
         """Return the largest qualifying contour centroid, if one exists."""
+        
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
             if cv2.contourArea(contour) <= min_area:
                 break

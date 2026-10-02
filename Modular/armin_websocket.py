@@ -107,8 +107,6 @@ class WebSocketController:
             enabled = bool(data.get('enabled', not self.state.control.debug_motor))
             self.state.control.debug_motor = enabled
             print(f"[debug] motor debug logging {'ON' if enabled else 'OFF'}")
-        elif message_type == 'clahe':
-            self._update_clahe(data)
 
     def _update_vision_params(self, data: dict) -> None:
         ball_lower = list(self.vision_config.ball_lower)
@@ -148,19 +146,6 @@ class WebSocketController:
         valid = {key for key in incoming if key in valid_keys}
         self.state.control.active_keys = valid
         self.state.control.keys_last_seen = time.time()
-
-    def _update_clahe(self, data: dict) -> None:
-        clip_limit = data.get('clip_limit')
-        tile_grid = data.get('tile_grid')
-        if clip_limit is not None:
-            clip_limit = float(clip_limit)
-        if tile_grid is not None:
-            tile_grid = (int(tile_grid[0]), int(tile_grid[1]))
-        self.vision.update_clahe(clip_limit, tile_grid)
-        print(
-            f"[clahe] clip_limit={self.vision_config.clahe_clip_limit} "
-            f"tile_grid={self.vision_config.clahe_tile_grid}"
-        )
 
     async def broadcast(self, payload: bytes) -> None:
         if self.state.clients:

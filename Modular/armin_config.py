@@ -35,8 +35,8 @@ class MotorConfig:
     
     enable_dribbler: bool = True
     dribbler_address: int = 29
-    dribbler_calibration: Tuple[int, int] = (1437909504, 1246)
-    dribbler_speed: int = 100_000_000
+    dribbler_calibration: Tuple[int, int] = (1438725120, 1247)
+    dribbler_speed: int = 150_000_000
     
     orbit_standoff_radius: int = 165
     orbit_arrived_angle_tolerance: float = 1.0
@@ -79,7 +79,7 @@ class VisionConfig:
     ball_lost_timeout: float = 0.5
     clahe_clip_limit: float = 2.5
     clahe_tile_grid: Tuple[int, int] = (8, 8)
-    debug_mask : bool = True
+    debug_mask : bool = False
     valid_mask_path: str = 'bot_mask.png'
     
     last_ball_vector : Tuple[float, float] = None
@@ -97,7 +97,7 @@ class VisionConfig:
     blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
     blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
 
-    goal_stop_distance : int = 180
+    goal_stop_distance : int = 200
     goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
     
     last_goal_vector : Tuple[float, float] = None
@@ -120,9 +120,9 @@ class CameraConfig:
     """Capture format and manual image controls requested from Picamera2."""
 
     size: Tuple[int, int] = (640, 480)
-    fps: int = 120
-    exposure_time: int = 50000 # 66656
-    analogue_gain: float = 8.677966117858887
+    fps: int = 60
+    exposure_time: int = 15_000 # 66656
+    analogue_gain: float = 16
     colour_gains: Tuple[float, float] = (2.4364535808563232, 1.9698092937469482)
 
     @property
@@ -143,7 +143,7 @@ class ControlConfig:
 
     key_lost_timeout: float = 0.3
     motor_loop_delay: float = 0.02
-    camera_loop_delay: float = 0.01
+    # camera_loop_delay: float = 0.01
     debug_motor: bool = True
     debug_print_hz: int = 5
     movement_switch_gpio: int = 26

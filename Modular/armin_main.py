@@ -81,6 +81,7 @@ class ArminApplication:
             self.robot_config.control.movement_switch_gpio
         )
         self.mode_toggle_button.when_pressed = lambda: self.toggle_mode()
+        self._send_task = None
         
         # self.goal_toggle_switch = Button(
         #     self.robot_config.control.goal_switch_gpio,
@@ -133,6 +134,7 @@ class ArminApplication:
             self.robot_websocket.handle,
             '0.0.0.0',
             self.robot_config.network.websocket_port,
+            compression=None
         )
         print(
             'WebSocket control + video on port '
@@ -151,10 +153,18 @@ class ArminApplication:
             sys.stdout = self.original_stdout
 
     async def stream_camera(self, picam) -> None:
-        """Publish the latest ball + goal observations and JPEG to connected clients."""
-        while self.robot_state.is_running:
+        PREVIEW_EVERY = 3   # 60 fps camera -> 20 fps preview
+        t_report = time.perf_counter()
+        loops = sent = skipped = 0
+        proc = enc_t = 0.0
+        kb = 0.0
 
-            frame, ball_offset, goal_offset, original_frame = self.robot_vision.process_frame(picam, )
+        while self.robot_state.is_running:
+            t0 = time.perf_counter()
+            frame, ball_offset, goal_offset = await asyncio.to_thread(
+                self.robot_vision.process_frame, picam,
+            )
+            t1 = time.perf_counter()
             now = time.time()
 
             # Only stamp last_seen on a real detection so staleness checks stay honest.
@@ -164,13 +174,36 @@ class ArminApplication:
             self.robot_state.goal.offset = goal_offset
             if goal_offset is not None:
                 self.robot_state.goal.last_seen = now
-            self.take_photo(original_frame)
             self._print_requested_vector()
-            success, encoded = cv2.imencode('.jpg', frame)
-            if success:
-                await self.robot_websocket.broadcast(encoded.tobytes())
-            await asyncio.sleep(self.robot_config.control.camera_loop_delay)
 
+            loops += 1
+            proc += t1 - t0
+
+            # Preview: only every Nth frame, only with a client, only if the last send finished.
+            if self.robot_state.clients and loops % PREVIEW_EVERY == 0:
+                if self._send_task is None or self._send_task.done():
+                    ok, enc = await asyncio.to_thread(self._encode_preview, frame)
+                    enc_t += time.perf_counter() - t1
+                    if ok:
+                        payload = enc.tobytes()
+                        self._send_task = asyncio.create_task(
+                            self.robot_websocket.broadcast(payload)
+                        )
+                        sent += 1
+                        kb += len(payload) / 1000
+                else:
+                    skipped += 1
+
+            t3 = time.perf_counter()
+            if t3 - t_report >= 1.0:
+                print(f"[perf] {loops} fps | process {proc/loops*1000:.1f} ms | "
+                    f"encode {enc_t/max(sent,1)*1000:.1f} ms | sent {sent} skipped {skipped} | "
+                    f"{kb/max(sent,1):.0f} KB/frame | {kb*8/1000:.1f} Mbit/s")
+                t_report = t3
+                loops = sent = skipped = 0
+                proc = enc_t = kb = 0.0
+
+            await asyncio.sleep(0)
     def take_photo(self, frame):        
         if not self.robot_state.control.take_photo: 
             return
@@ -204,6 +237,11 @@ class ArminApplication:
         )
 
     @staticmethod
+    def _encode_preview(frame):
+        small = cv2.resize(frame, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+        return cv2.imencode('.jpg', small, [cv2.IMWRITE_JPEG_QUALITY, 70])
+
+    @staticmethod
     def _bearing_from_offset(offset, camera_rotation_offset: float) -> float:
         """Convert an image offset into the robot-frame bearing convention."""
         offset_x, offset_y = offset
@@ -217,6 +255,7 @@ class ArminApplication:
         while self.robot_state.is_running:
             now = time.time()
             control = self.robot_state.control
+            self.robot_motors.spin_dribbler(True)
             if control.mode == 'manual':
                 timeout = self.robot_config.control.key_lost_timeout
                 stale = (
@@ -294,7 +333,7 @@ class ArminApplication:
             motors.drive_to_the_ball(True, ball_bearing, ball_distance)
         
         if ball_vector is None:
-            motors.spin()
+            motors.spin(motors.config.max_speed * 0.3)
                
         # Normalizes goal bearing before calculating easing
 
@@ -311,23 +350,18 @@ class ArminApplication:
         # bot mask and vanish, so it only clears when the ball is seen escaping
         # beyond the capture (orbit) radius.
         if state.has_possession and (ball_distance > vision.ball_dribble_radius):
-            print('[auto] ball escaped capture radius -> possession cleared')
             state.has_possession = False
             state.has_orbited = False
 
         if state.has_possession: # Maintain posession
+            print(goal_distance)
             if goal_vector:
-                print("Driving to goal")
-                
-                if goal_distance < vision.goal_stop_distance: 
-                    if ball_distance <= vision.in_range_for_kick:
-                        solenoid.kick()
+                if goal_distance < vision.goal_stop_distance:
+                    solenoid.kick()
                     motors.stop()
-                    print("STOP")
                 motors.spin_dribbler(True)
                 motors.drive_to_goal(goal_bearing, rotation_speed)
             else:
-                print('Got ball, dunno where goal is')
                 motors.spin_dribbler(True)
                 motors.spin(motors.config.max_speed * 0.5)
             return
@@ -336,10 +370,8 @@ class ArminApplication:
             # target_bearing = goal_bearing - ball_bearing
             # if motors.spin_to_bearing(target_bearing, 3):
             motors.spin_dribbler(True)
-            print("Moving closer")
             motors.rotate_and_move(ball_bearing, motors.config.max_speed, rotation_speed)
             if ball_distance <= vision.ball_dribble_radius:
-                print("Close enough to possess")
                 state.has_possession = True
         
         elif ball_distance > vision.orbit_radius:
@@ -353,7 +385,6 @@ class ArminApplication:
             target_bearing = goal_bearing
             if motors.orbit_to_behind_ball(target_bearing, rotation_speed):
                 state.has_orbited = True
-                print('Arrived behind ball, now dribbling')
                 return
             
         else:
