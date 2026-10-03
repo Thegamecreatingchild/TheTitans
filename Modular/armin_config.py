@@ -85,17 +85,17 @@ class VisionConfig:
     last_ball_vector : Tuple[float, float] = None
     last_ball_distance : float = None
     
-    # yellow_goal_lower: Tuple[int, int, int] = (20, 235, 100)
-    # yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
-    
-    # blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
-    # blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
-    
-    yellow_goal_lower: Tuple[int, int, int] = (20, 180, 30)
+    yellow_goal_lower: Tuple[int, int, int] = (20, 235, 100)
     yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
     
     blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
     blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
+    
+    # yellow_goal_lower: Tuple[int, int, int] = (20, 180, 30)
+    # yellow_goal_upper: Tuple[int, int, int] = (40, 255, 255)
+    
+    # blue_goal_lower: Tuple[int, int, int] = (95, 207, 60)
+    # blue_goal_upper: Tuple[int, int, int] = (105, 255, 100)
 
     goal_stop_distance : int = 200
     goal_min_contour_area : int = 120  # goals are big; a larger floor rejects speckle
