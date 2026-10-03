@@ -21,7 +21,7 @@ import cv2
 import websockets
 from gpiozero import Button
 
-from armin_config import RobotConfig, VisionConfig
+from armin_config import RobotConfig, VisionConfig, TOFConfig
 from armin_motors import MotorController
 from armin_state import RobotState
 from armin_vision import VisionService
@@ -82,6 +82,7 @@ class ArminApplication:
         )
         self.mode_toggle_button.when_pressed = lambda: self.toggle_mode()
         self._send_task = None
+        self.tofs = TOFConfig()
         
         # self.goal_toggle_switch = Button(
         #     self.robot_config.control.goal_switch_gpio,
@@ -282,6 +283,7 @@ class ArminApplication:
         ball, goal = state.ball, state.goal
         timeout = vision.ball_lost_timeout
         solenoid = self.robot_solenoid
+        tofchain = self.tofs
         
         # ! Outstanding bug - this is code below is now redundant because I have bypassed 
         # ! it figure out search logic later.
@@ -349,6 +351,10 @@ class ArminApplication:
         # Possession is latched: a ball held in the dribbler can sit outside the
         # bot mask and vanish, so it only clears when the ball is seen escaping
         # beyond the capture (orbit) radius.
+        
+        for i in tofchain.TOF_CHAIN_1:
+            pass
+        
         if state.has_possession and (ball_distance > vision.ball_dribble_radius):
             state.has_possession = False
             state.has_orbited = False

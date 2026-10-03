@@ -12,6 +12,7 @@ The variables are grouped into different classes based on their purpose.
 """
 
 from dataclasses import dataclass, field
+from tof import TOFChain
 from typing import Tuple
 
 
@@ -57,7 +58,6 @@ class MotorConfig:
     #     MotorCalibration(1435147520, 1243),
     # )
     # The tuple-of-tuples above is intentionally simpler for now.
-
 
 @dataclass
 class VisionConfig:
@@ -128,6 +128,12 @@ class CameraConfig:
     @property
     def frame_duration_us(self) -> int:
         return int(1_000_000 / self.fps)
+
+@dataclass
+class TOFConfig:
+    ADDRESS_SET_1 = [0x51, 0x52, 0x53, 0x50, 0x55, 0x56, 0x57, 0x5a] 
+    TOF_CHAIN_1 = TOFChain(ADDRESS_SET_1)
+    pass
 
 
 @dataclass(frozen=True)
