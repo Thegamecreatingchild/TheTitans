@@ -80,17 +80,18 @@ class ArminApplication:
         self.mode_toggle_button = Button(
             self.robot_config.control.movement_switch_gpio
         )
-        self.mode_toggle_button.when_pressed = lambda: self.toggle_mode()
+        self.mode_toggle_button.when_pressed = lambda: self.toggle_mode("auto")
+        self.mode_toggle_button.when_released = lambda: self.toggle_mode("manual")
         self._send_task = None
         self.tofs = TOFConfig()
         
-        # self.goal_toggle_switch = Button(
-        #     self.robot_config.control.goal_switch_gpio,
-        #     # bounce_time = 1
-        # )
-        # self.goal_toggle_switch.when_pressed = lambda: self.toggle_goal('yellow_goal')
-        # self.goal_toggle_switch.when_released = lambda: self.toggle_goal('blue_goal')
-        # self.last_goal_toggled_time : float = 0.0
+        self.goal_toggle_switch = Button(
+            self.robot_config.control.goal_switch_gpio,
+            # bounce_time = 1
+        )
+        self.goal_toggle_switch.when_pressed = lambda: self.toggle_goal('yellow_goal')
+        self.goal_toggle_switch.when_released = lambda: self.toggle_goal('blue_goal')
+        self.last_goal_toggled_time : float = 0.0
 
     def toggle_mode(self, mode: str | None = None) -> None:        
         if mode != None:
@@ -105,19 +106,19 @@ class ArminApplication:
             self.robot_state.control.mode = 'manual'
         return
     
-    # def toggle_goal(self, goal: str | None = None) -> None:
-    #     if time.time() - self.last_goal_toggled_time < 2.0:
-    #         return
-    #     goals = self.robot_vision.config.goals
-    #     target_goal = self.robot_vision.config.target_goal
-    #     if goal is None:
-    #         target_goal = goals[1] if target_goal == goals[0] else goals[0]
-    #     else:
-    #         if goal not in goals: raise ValueError("Please choose a valid goal to switch to")
-    #         target_goal = goal
-    #     print(f'Switched to {target_goal}')
-    #     self.robot_vision.config.target_goal = target_goal
-    #     return
+    def toggle_goal(self, goal: str | None = None) -> None:
+        if time.time() - self.last_goal_toggled_time < 2.0:
+            return
+        goals = self.robot_vision.config.goals
+        target_goal = self.robot_vision.config.target_goal
+        if goal is None:
+            target_goal = goals[1] if target_goal == goals[0] else goals[0]
+        else:
+            if goal not in goals: raise ValueError("Please choose a valid goal to switch to")
+            target_goal = goal
+        print(f'Switched to {target_goal}')
+        self.robot_vision.config.target_goal = target_goal
+        return
 
     async def run(self) -> None:
         """Initialize hardware, serve the browser, and run until shutdown."""
